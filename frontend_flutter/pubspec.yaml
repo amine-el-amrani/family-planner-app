@@ -19,8 +19,8 @@ dependencies:
   # Navigation
   go_router: ^14.2.7
 
-  # Secure storage for JWT (uses localStorage on web)
-  flutter_secure_storage: ^9.2.2
+  # Storage for JWT (web-compatible)
+  shared_preferences: ^2.3.0
 
   # Calendar
   table_calendar: ^3.1.2

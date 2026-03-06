@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../core/api_client.dart';
 
 class AuthProvider extends ChangeNotifier {
-  final _storage = const FlutterSecureStorage();
   final _api = ApiClient();
 
   bool _isAuthenticated = false;
@@ -15,14 +14,15 @@ class AuthProvider extends ChangeNotifier {
   Map<String, dynamic>? get user => _user;
 
   Future<void> init() async {
-    final token = await _storage.read(key: 'jwt_token');
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token');
     if (token != null) {
       try {
         final response = await _api.dio.get('/users/me');
         _user = response.data;
         _isAuthenticated = true;
       } catch (_) {
-        await _storage.delete(key: 'jwt_token');
+        await prefs.remove('jwt_token');
       }
     }
     _isLoading = false;
@@ -35,7 +35,8 @@ class AuthProvider extends ChangeNotifier {
       data: {'email': email, 'password': password},
     );
     final token = response.data['access_token'];
-    await _storage.write(key: 'jwt_token', value: token);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('jwt_token', token);
     final me = await _api.dio.get('/users/me');
     _user = me.data;
     _isAuthenticated = true;
@@ -52,7 +53,8 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> logout() async {
-    await _storage.delete(key: 'jwt_token');
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('jwt_token');
     _isAuthenticated = false;
     _user = null;
     notifyListeners();
