@@ -5,17 +5,17 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
-# Add project root to sys.path so imports work
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+# Add backend/ to sys.path so 'app.*' imports work (works both locally and on Railway)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from backend.app.database import DATABASE_URL, Base
+from app.database import DATABASE_URL, Base
 
 # Import all models so they are registered in Base.metadata
-from backend.app.users.models import User
-from backend.app.families.models import Family, FamilyInvitation
-from backend.app.events.models import Event
-from backend.app.tasks.models import Task
-from backend.app.notifications.models import Notification
+from app.users.models import User
+from app.families.models import Family, FamilyInvitation
+from app.events.models import Event
+from app.tasks.models import Task
+from app.notifications.models import Notification
 
 config = context.config
 
