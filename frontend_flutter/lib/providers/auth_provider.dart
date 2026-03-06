@@ -1,0 +1,68 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../core/api_client.dart';
+
+class AuthProvider extends ChangeNotifier {
+  final _storage = const FlutterSecureStorage();
+  final _api = ApiClient();
+
+  bool _isAuthenticated = false;
+  bool _isLoading = true;
+  Map<String, dynamic>? _user;
+
+  bool get isAuthenticated => _isAuthenticated;
+  bool get isLoading => _isLoading;
+  Map<String, dynamic>? get user => _user;
+
+  Future<void> init() async {
+    final token = await _storage.read(key: 'jwt_token');
+    if (token != null) {
+      try {
+        final response = await _api.dio.get('/users/me');
+        _user = response.data;
+        _isAuthenticated = true;
+      } catch (_) {
+        await _storage.delete(key: 'jwt_token');
+      }
+    }
+    _isLoading = false;
+    notifyListeners();
+  }
+
+  Future<void> login(String email, String password) async {
+    final response = await _api.dio.post(
+      '/auth/login',
+      data: {'email': email, 'password': password},
+    );
+    final token = response.data['access_token'];
+    await _storage.write(key: 'jwt_token', value: token);
+    final me = await _api.dio.get('/users/me');
+    _user = me.data;
+    _isAuthenticated = true;
+    notifyListeners();
+  }
+
+  Future<void> register(String fullName, String email, String password) async {
+    await _api.dio.post('/auth/register', data: {
+      'full_name': fullName,
+      'email': email,
+      'password': password,
+    });
+    await login(email, password);
+  }
+
+  Future<void> logout() async {
+    await _storage.delete(key: 'jwt_token');
+    _isAuthenticated = false;
+    _user = null;
+    notifyListeners();
+  }
+
+  Future<void> refreshUser() async {
+    try {
+      final response = await _api.dio.get('/users/me');
+      _user = response.data;
+      notifyListeners();
+    } catch (_) {}
+  }
+}

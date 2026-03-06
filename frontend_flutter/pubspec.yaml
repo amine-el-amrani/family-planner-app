@@ -1,0 +1,50 @@
+name: family_planner
+description: Family Planner App
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # HTTP
+  dio: ^5.7.0
+
+  # State management
+  provider: ^6.1.2
+
+  # Navigation
+  go_router: ^14.2.7
+
+  # Secure storage for JWT (uses localStorage on web)
+  flutter_secure_storage: ^9.2.2
+
+  # Calendar
+  table_calendar: ^3.1.2
+
+  # Image picker (uses file input on web)
+  image_picker: ^1.1.2
+
+  # Date formatting
+  intl: ^0.19.0
+
+  # Icons
+  flutter_svg: ^2.0.10+1
+
+  # Network image with caching
+  cached_network_image: ^3.4.1
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/

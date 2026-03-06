@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Body
 from sqlalchemy.orm import Session
 from backend.app.database import get_db
 from backend.app.families.models import Family, FamilyInvitation, InvitationStatus
 from backend.app.auth.deps import get_current_user
 from backend.app.users.models import User
+from backend.app.notifications.models import Notification
 import os
 
 router = APIRouter(prefix="/families", tags=["Families"])
@@ -36,17 +37,17 @@ def list_families(current_user: User = Depends(get_current_user)):
 @router.put("/{family_id}")
 def update_family(
     family_id: int,
-    name: str = None,
-    description: str = None,
+    name: str = Body(None),
+    description: str = Body(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     family = db.query(Family).filter(Family.id == family_id).first()
-    if not family or family.created_by_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    if name:
+    if not family or current_user not in family.members:
+        raise HTTPException(status_code=403, detail="Not a member of this family")
+    if name is not None:
         family.name = name
-    if description:
+    if description is not None:
         family.description = description
     db.commit()
     return {"message": "Family updated"}
@@ -59,8 +60,8 @@ def upload_family_image(
     db: Session = Depends(get_db)
 ):
     family = db.query(Family).filter(Family.id == family_id).first()
-    if not family or family.created_by_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    if not family or current_user not in family.members:
+        raise HTTPException(status_code=403, detail="Not a member of this family")
     static_dir = os.path.join(os.path.dirname(__file__), '..', 'static')
     os.makedirs(static_dir, exist_ok=True)
     filename = f"family_{family_id}.jpg"
@@ -97,6 +98,19 @@ def invite_member(
         invited_by_id=current_user.id
     )
     db.add(invitation)
+    db.flush()  # get invitation.id before commit
+
+    # Notify invited user if they have an account
+    invited_user = db.query(User).filter(User.email == email).first()
+    if invited_user:
+        db.add(Notification(
+            message=f"{current_user.full_name} vous a invité dans la famille '{family.name}'",
+            user_id=invited_user.id,
+            created_by_id=current_user.id,
+            related_entity_type="invitation",
+            related_entity_id=invitation.id,
+        ))
+
     db.commit()
     return {"message": "Invitation sent"}
 
@@ -115,6 +129,23 @@ def list_my_invitations(current_user: User = Depends(get_current_user), db: Sess
         for inv in invitations
     ]
 
+
+@router.get("/my-sent-invitations")
+def list_my_sent_invitations(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    invitations = db.query(FamilyInvitation).filter(
+        FamilyInvitation.invited_by_id == current_user.id
+    ).order_by(FamilyInvitation.id.desc()).all()
+    return [
+        {
+            "id": inv.id,
+            "email": inv.email,
+            "family_id": inv.family_id,
+            "family_name": inv.family.name,
+            "status": inv.status.value,
+        }
+        for inv in invitations
+    ]
+
 @router.post("/invitations/{invitation_id}/accept")
 def accept_invitation(
     invitation_id: int,
@@ -129,7 +160,18 @@ def accept_invitation(
     if not invitation:
         raise HTTPException(status_code=404, detail="Invitation not found")
     invitation.status = InvitationStatus.ACCEPTED
-    invitation.family.members.append(current_user)
+    family = invitation.family
+    family.members.append(current_user)
+
+    # Notifier le créateur de la famille
+    if family.created_by_id != current_user.id:
+        notif = Notification(
+            message=f"{current_user.full_name} a rejoint la famille '{family.name}'",
+            user_id=family.created_by_id,
+            created_by_id=current_user.id
+        )
+        db.add(notif)
+
     db.commit()
     return {"message": "Invitation accepted"}
 
@@ -175,7 +217,7 @@ def list_members(
     if not family or current_user not in family.members:
         raise HTTPException(status_code=404, detail="Family not found or access denied")
     return [
-        {"id": user.id, "email": user.email, "full_name": user.full_name}
+        {"id": user.id, "email": user.email, "full_name": user.full_name, "profile_image": user.profile_image}
         for user in family.members
     ]
 
