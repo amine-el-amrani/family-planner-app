@@ -1,8 +1,8 @@
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
-from backend.app.database import Base
-from backend.app.users.models import User
+from app.database import Base
+from app.users.models import User
 
 
 class Notification(Base):

@@ -3,10 +3,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
-from backend.app.database import get_db
-from backend.app.auth.deps import get_current_user
-from backend.app.users.models import User
-from backend.app.notes.models import FamilyNote
+from app.database import get_db
+from app.auth.deps import get_current_user
+from app.users.models import User
+from app.notes.models import FamilyNote
 
 router = APIRouter(prefix="/notes", tags=["Notes"])
 

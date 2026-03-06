@@ -1,11 +1,11 @@
 import os
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from backend.app.auth.deps import get_current_user
-from backend.app.users.models import User
-from backend.app.auth.schemas import UserUpdate, UserOut
+from app.auth.deps import get_current_user
+from app.users.models import User
+from app.auth.schemas import UserUpdate, UserOut
 from sqlalchemy.orm import Session
-from backend.app.database import get_db
+from app.database import get_db
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -54,7 +54,7 @@ def get_karma(
     db: Session = Depends(get_db)
 ):
     """Retourne les données karma : total, objectif quotidien, tâches du jour, tâches de la semaine."""
-    from backend.app.tasks.models import Task, TaskStatus
+    from app.tasks.models import Task, TaskStatus
 
     today = datetime.now().date()
     week_start = today - timedelta(days=today.weekday())  # lundi

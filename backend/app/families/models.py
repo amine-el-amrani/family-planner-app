@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, Table, Enum, ForeignKey
 from sqlalchemy.orm import relationship
-from backend.app.database import Base
+from app.database import Base
 import enum
 
 user_family_table = Table(

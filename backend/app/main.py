@@ -4,23 +4,23 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from backend.app.database import Base
-from backend.app.users.models import User
-from backend.app.families.models import Family, user_family_table, FamilyInvitation
-from backend.app.events.models import Event
-from backend.app.tasks.models import Task
-from backend.app.notifications.models import Notification
-from backend.app.shopping.models import ShoppingList, ShoppingItem
-from backend.app.notes.models import FamilyNote
-from backend.app.auth.routes import router as auth_router
-from backend.app.users.routes import router as users_router
-from backend.app.families.routes import router as families_router
-from backend.app.events.routes import router as events_router
-from backend.app.tasks.routes import router as tasks_router
-from backend.app.notifications.routes import router as notifications_router
-from backend.app.shopping.routes import router as shopping_router
-from backend.app.notes.routes import router as notes_router
-from backend.app.reminders import send_daily_reminders
+from app.database import Base
+from app.users.models import User
+from app.families.models import Family, user_family_table, FamilyInvitation
+from app.events.models import Event
+from app.tasks.models import Task
+from app.notifications.models import Notification
+from app.shopping.models import ShoppingList, ShoppingItem
+from app.notes.models import FamilyNote
+from app.auth.routes import router as auth_router
+from app.users.routes import router as users_router
+from app.families.routes import router as families_router
+from app.events.routes import router as events_router
+from app.tasks.routes import router as tasks_router
+from app.notifications.routes import router as notifications_router
+from app.shopping.routes import router as shopping_router
+from app.notes.routes import router as notes_router
+from app.reminders import send_daily_reminders
 
 scheduler = AsyncIOScheduler()
 

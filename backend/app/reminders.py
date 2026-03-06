@@ -4,11 +4,11 @@ Sends push notifications for:
   • Events happening today
 """
 from datetime import datetime
-from backend.app.database import SessionLocal
-from backend.app.users.models import User
-from backend.app.tasks.models import Task, TaskStatus, TaskPriority
-from backend.app.events.models import Event
-from backend.app.notifications.push import send_expo_push
+from app.database import SessionLocal
+from app.users.models import User
+from app.tasks.models import Task, TaskStatus, TaskPriority
+from app.events.models import Event
+from app.notifications.push import send_expo_push
 
 
 def send_daily_reminders() -> None:

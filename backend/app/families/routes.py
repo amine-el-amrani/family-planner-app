@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Body
 from sqlalchemy.orm import Session
-from backend.app.database import get_db
-from backend.app.families.models import Family, FamilyInvitation, InvitationStatus
-from backend.app.auth.deps import get_current_user
-from backend.app.users.models import User
-from backend.app.notifications.models import Notification
+from app.database import get_db
+from app.families.models import Family, FamilyInvitation, InvitationStatus
+from app.auth.deps import get_current_user
+from app.users.models import User
+from app.notifications.models import Notification
 import os
 
 router = APIRouter(prefix="/families", tags=["Families"])

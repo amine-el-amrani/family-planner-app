@@ -2,14 +2,14 @@ from typing import Optional
 from datetime import date, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from backend.app.database import get_db
-from backend.app.auth.deps import get_current_user
-from backend.app.users.models import User
-from backend.app.families.models import Family
-from backend.app.events.models import Event
-from backend.app.notifications.models import Notification
-from backend.app.notifications.push import send_expo_push
-from backend.app.events.schemas import EventCreate, EventUpdate
+from app.database import get_db
+from app.auth.deps import get_current_user
+from app.users.models import User
+from app.families.models import Family
+from app.events.models import Event
+from app.notifications.models import Notification
+from app.notifications.push import send_expo_push
+from app.events.schemas import EventCreate, EventUpdate
 
 router = APIRouter(prefix="/events", tags=["Events"])
 

@@ -3,15 +3,15 @@ from datetime import datetime, timedelta, date as date_type
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
-from backend.app.database import get_db
-from backend.app.auth.deps import get_current_user
-from backend.app.users.models import User
-from backend.app.events.models import Event
-from backend.app.families.models import Family
-from backend.app.tasks.models import Task, TaskStatus, TaskVisibility, TaskPriority
-from backend.app.notifications.models import Notification
-from backend.app.notifications.push import send_expo_push
-from backend.app.tasks.schemas import TaskCreate, TaskUpdate
+from app.database import get_db
+from app.auth.deps import get_current_user
+from app.users.models import User
+from app.events.models import Event
+from app.families.models import Family
+from app.tasks.models import Task, TaskStatus, TaskVisibility, TaskPriority
+from app.notifications.models import Notification
+from app.notifications.push import send_expo_push
+from app.tasks.schemas import TaskCreate, TaskUpdate
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
