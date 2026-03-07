@@ -41,6 +41,12 @@ def _get_keys() -> dict:
     if os.path.exists(_KEYS_FILE):
         with open(_KEYS_FILE) as f:
             _keys_cache = json.load(f)
+        pem_oneline = _keys_cache.get("private_pem", "").replace('\n', '\\n')
+        print("=" * 60)
+        print("VAPID keys loaded from file. Set these in Railway env vars:")
+        print(f"VAPID_PUBLIC_KEY={_keys_cache.get('public_b64', '')}")
+        print(f"VAPID_PRIVATE_PEM={pem_oneline}")
+        print("=" * 60)
         return _keys_cache
 
     # 3. Generate new P-256 key pair (first run)

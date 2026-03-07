@@ -48,6 +48,9 @@ def _wait_for_db(max_retries: int = 10, delay: float = 3.0) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _wait_for_db()
+    # Ensure VAPID keys are generated/logged at startup
+    from app.notifications.push import _get_keys
+    _get_keys()
     # Daily reminder at 08:00 every day
     scheduler.add_job(send_daily_reminders, "cron", hour=8, minute=0, id="daily_reminders")
     scheduler.start()
