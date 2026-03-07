@@ -32,6 +32,8 @@ def _get_keys() -> dict:
     env_pem = os.environ.get("VAPID_PRIVATE_PEM")
     env_pub = os.environ.get("VAPID_PUBLIC_KEY")
     if env_pem and env_pub:
+        # Railway stores the value with literal \n — restore real newlines
+        env_pem = env_pem.replace('\\n', '\n')
         _keys_cache = {"private_pem": env_pem, "public_b64": env_pub}
         return _keys_cache
 
@@ -63,10 +65,12 @@ def _get_keys() -> dict:
         with open(_KEYS_FILE, 'w') as f:
             json.dump(_keys_cache, f)
 
+        # Print as single-line value (\\n literals) so it can be pasted into Railway as one line
+        pem_oneline = private_pem.replace('\n', '\\n')
         print("=" * 60)
-        print("VAPID keys generated. Copy to environment variables:")
+        print("VAPID keys generated. Add these to Railway environment variables:")
         print(f"VAPID_PUBLIC_KEY={pub_b64}")
-        print(f"VAPID_PRIVATE_PEM=<contents of vapid_keys.json>")
+        print(f"VAPID_PRIVATE_PEM={pem_oneline}")
         print("=" * 60)
         return _keys_cache
 
