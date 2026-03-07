@@ -10,7 +10,13 @@ _raw_url = os.environ.get(
 # SQLAlchemy requires postgresql:// not postgres:// (Heroku/Railway compat)
 DATABASE_URL = _raw_url.replace("postgres://", "postgresql://", 1)
 
-engine = create_engine(DATABASE_URL)
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,      # verify connection before use (handles stale connections)
+    pool_size=5,
+    max_overflow=10,
+    pool_recycle=300,        # recycle connections every 5 min
+)
 
 SessionLocal = sessionmaker(
     autocommit=False,

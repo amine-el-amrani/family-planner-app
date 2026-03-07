@@ -1,4 +1,6 @@
 import os as _os
+import time
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -23,10 +25,29 @@ from app.notes.routes import router as notes_router
 from app.reminders import send_daily_reminders
 
 scheduler = AsyncIOScheduler()
+logger = logging.getLogger(__name__)
+
+
+def _wait_for_db(max_retries: int = 10, delay: float = 3.0) -> None:
+    """Wait until the database is ready (handles Railway cold-start race)."""
+    from app.database import engine
+    from sqlalchemy import text
+    for attempt in range(1, max_retries + 1):
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            logger.info("Database is ready.")
+            return
+        except Exception as e:
+            logger.warning(f"DB not ready (attempt {attempt}/{max_retries}): {e}")
+            if attempt < max_retries:
+                time.sleep(delay)
+    logger.error("Could not connect to the database after retries. Starting anyway.")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _wait_for_db()
     # Daily reminder at 08:00 every day
     scheduler.add_job(send_daily_reminders, "cron", hour=8, minute=0, id="daily_reminders")
     scheduler.start()
