@@ -8,7 +8,7 @@ from app.database import SessionLocal
 from app.users.models import User
 from app.tasks.models import Task, TaskStatus, TaskPriority
 from app.events.models import Event
-from app.notifications.push import send_expo_push
+from app.notifications.push import send_push
 
 
 def send_daily_reminders() -> None:
@@ -57,7 +57,7 @@ def send_daily_reminders() -> None:
 
             if lines:
                 body = " | ".join(lines)
-                send_expo_push(user.push_token, "Bonjour ! Votre journée 👋", body)
+                send_push(user.push_token, "Bonjour ! Votre journée 👋", body)
 
     except Exception:
         pass

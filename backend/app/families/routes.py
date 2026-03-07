@@ -6,6 +6,7 @@ from app.families.models import Family, FamilyInvitation, InvitationStatus
 from app.auth.deps import get_current_user
 from app.users.models import User
 from app.notifications.models import Notification
+from app.notifications.push import send_push
 
 router = APIRouter(prefix="/families", tags=["Families"])
 
@@ -100,15 +101,19 @@ def invite_member(
     # Notify invited user if they have an account
     invited_user = db.query(User).filter(User.email == email).first()
     if invited_user:
+        msg = f"{current_user.full_name} vous a invité dans la famille '{family.name}'"
         db.add(Notification(
-            message=f"{current_user.full_name} vous a invité dans la famille '{family.name}'",
+            message=msg,
             user_id=invited_user.id,
             created_by_id=current_user.id,
             related_entity_type="invitation",
             related_entity_id=invitation.id,
         ))
-
-    db.commit()
+        db.commit()
+        if invited_user.push_token:
+            send_push(invited_user.push_token, "Nouvelle invitation", msg)
+    else:
+        db.commit()
     return {"message": "Invitation sent"}
 
 @router.get("/my-invitations")
@@ -178,15 +183,22 @@ def accept_invitation(
     family.members.append(current_user)
 
     # Notifier le créateur de la famille
+    creator_push = None
     if family.created_by_id != current_user.id:
+        msg = f"{current_user.full_name} a rejoint la famille '{family.name}'"
         notif = Notification(
-            message=f"{current_user.full_name} a rejoint la famille '{family.name}'",
+            message=msg,
             user_id=family.created_by_id,
             created_by_id=current_user.id
         )
         db.add(notif)
+        creator = db.query(User).filter(User.id == family.created_by_id).first()
+        if creator and creator.push_token:
+            creator_push = (creator.push_token, msg)
 
     db.commit()
+    if creator_push:
+        send_push(creator_push[0], "Famille rejointe", creator_push[1])
     return {"message": "Invitation accepted"}
 
 @router.post("/invitations/{invitation_id}/reject")

@@ -10,7 +10,7 @@ from app.events.models import Event
 from app.families.models import Family
 from app.tasks.models import Task, TaskStatus, TaskVisibility, TaskPriority
 from app.notifications.models import Notification
-from app.notifications.push import send_expo_push
+from app.notifications.push import send_push
 from app.tasks.schemas import TaskCreate, TaskUpdate
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
@@ -102,7 +102,7 @@ def create_task(
 
     # Push to assignee on creation
     if assigned_user and assigned_user.id != current_user.id and assigned_user.push_token:
-        send_expo_push(
+        send_push(
             assigned_user.push_token,
             "Nouvelle tâche assignée",
             f"{current_user.full_name} vous a assigné : '{task_data.title}'"
@@ -252,12 +252,12 @@ def update_task(
     db.refresh(task)
 
     if assignee_push:
-        send_expo_push(assignee_push, "Tâche modifiée",
+        send_push(assignee_push, "Tâche modifiée",
                        f"'{task.title}' a été modifiée par {current_user.full_name}")
 
     if creator_push:
         status_msg = "terminée ✓" if task_data.status.value == "fait" else "remise en attente"
-        send_expo_push(creator_push, "Tâche mise à jour",
+        send_push(creator_push, "Tâche mise à jour",
                        f"'{task.title}' {status_msg} par {current_user.full_name}")
 
     return _task_to_dict(task)
@@ -291,7 +291,7 @@ def delete_task(
     db.commit()
 
     if assignee_id and assignee_id != current_user.id and assignee_push:
-        send_expo_push(assignee_push, "Tâche supprimée",
+        send_push(assignee_push, "Tâche supprimée",
                        f"'{task_title}' a été supprimée par {current_user.full_name}")
 
 

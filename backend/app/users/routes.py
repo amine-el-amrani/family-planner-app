@@ -103,3 +103,22 @@ def update_push_token(
     current_user.push_token = data.get("token")
     db.commit()
     return {"ok": True}
+
+
+@router.post("/me/push-subscription")
+def save_push_subscription(
+    data: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Save a Web Push subscription JSON for the current user."""
+    current_user.push_token = data.get("subscription")
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/push/vapid-key")
+def vapid_public_key():
+    """Return the VAPID public key for push subscription (no auth needed)."""
+    from app.notifications.push import get_vapid_public_key
+    return {"public_key": get_vapid_public_key()}

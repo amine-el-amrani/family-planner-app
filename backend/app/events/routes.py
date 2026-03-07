@@ -8,7 +8,8 @@ from app.users.models import User
 from app.families.models import Family
 from app.events.models import Event
 from app.notifications.models import Notification
-from app.notifications.push import send_expo_push
+from app.notifications.push import send_push
+from app.notifications.push import send_push
 from app.events.schemas import EventCreate, EventUpdate
 
 router = APIRouter(prefix="/events", tags=["Events"])
@@ -80,7 +81,7 @@ def create_event(
 
     date_str = str(event_data.event_date)
     for push_token in push_targets:
-        send_expo_push(push_token, f"Nouvel événement · {family.name}",
+        send_push(push_token, f"Nouvel événement · {family.name}",
                        f"'{event_data.title}' le {date_str}")
 
     return _event_to_dict(event, family.name)
@@ -130,7 +131,7 @@ def update_event(
     db.commit()
 
     for push_token, title in push_targets:
-        send_expo_push(push_token, "Événement modifié",
+        send_push(push_token, "Événement modifié",
                        f"'{title}' a été modifié par {current_user.full_name}")
 
     return _event_to_dict(event)
@@ -166,7 +167,7 @@ def delete_event(
     db.commit()
 
     for push_token in push_targets:
-        send_expo_push(push_token, "Événement supprimé",
+        send_push(push_token, "Événement supprimé",
                        f"'{event_title}' a été supprimé par {current_user.full_name}")
 
 
