@@ -231,7 +231,8 @@ def list_members(
     if not family or current_user not in family.members:
         raise HTTPException(status_code=404, detail="Family not found or access denied")
     return [
-        {"id": user.id, "email": user.email, "full_name": user.full_name, "profile_image": user.profile_image}
+        {"id": user.id, "email": user.email, "full_name": user.full_name,
+         "profile_image": user.profile_image, "karma_total": user.karma_total or 0}
         for user in family.members
     ]
 
