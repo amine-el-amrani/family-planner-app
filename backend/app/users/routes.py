@@ -1,4 +1,4 @@
-import os
+import base64
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from app.auth.deps import get_current_user
@@ -36,13 +36,10 @@ def upload_profile_image(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    static_dir = os.path.join(os.path.dirname(__file__), '..', 'static')
-    os.makedirs(static_dir, exist_ok=True)
-    filename = f"profile_{current_user.id}.jpg"
-    file_path = os.path.join(static_dir, filename)
-    with open(file_path, "wb") as f:
-        f.write(file.file.read())
-    current_user.profile_image = f"/static/{filename}"
+    contents = file.file.read()
+    b64 = base64.b64encode(contents).decode('utf-8')
+    mime = file.content_type or 'image/jpeg'
+    current_user.profile_image = f"data:{mime};base64,{b64}"
     db.commit()
     db.refresh(current_user)
     return {"profile_image": current_user.profile_image}

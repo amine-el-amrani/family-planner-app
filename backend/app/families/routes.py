@@ -1,3 +1,4 @@
+import base64
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Body
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -5,7 +6,6 @@ from app.families.models import Family, FamilyInvitation, InvitationStatus
 from app.auth.deps import get_current_user
 from app.users.models import User
 from app.notifications.models import Notification
-import os
 
 router = APIRouter(prefix="/families", tags=["Families"])
 
@@ -62,13 +62,10 @@ def upload_family_image(
     family = db.query(Family).filter(Family.id == family_id).first()
     if not family or current_user not in family.members:
         raise HTTPException(status_code=403, detail="Not a member of this family")
-    static_dir = os.path.join(os.path.dirname(__file__), '..', 'static')
-    os.makedirs(static_dir, exist_ok=True)
-    filename = f"family_{family_id}.jpg"
-    file_path = os.path.join(static_dir, filename)
-    with open(file_path, "wb") as f:
-        f.write(file.file.read())
-    family.family_image = f"/static/{filename}"
+    contents = file.file.read()
+    b64 = base64.b64encode(contents).decode('utf-8')
+    mime = file.content_type or 'image/jpeg'
+    family.family_image = f"data:{mime};base64,{b64}"
     db.commit()
     return {"family_image": family.family_image}
 
@@ -145,6 +142,23 @@ def list_my_sent_invitations(current_user: User = Depends(get_current_user), db:
         }
         for inv in invitations
     ]
+
+@router.get("/{family_id}")
+def get_family(
+    family_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    family = db.query(Family).filter(Family.id == family_id).first()
+    if not family or current_user not in family.members:
+        raise HTTPException(status_code=404, detail="Family not found")
+    return {
+        "id": family.id,
+        "name": family.name,
+        "description": family.description,
+        "family_image": family.family_image,
+        "created_by_id": family.created_by_id,
+    }
 
 @router.post("/invitations/{invitation_id}/accept")
 def accept_invitation(
