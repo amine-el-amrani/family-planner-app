@@ -222,8 +222,9 @@ def search_products(
             params={
                 "q": q,
                 "fields": "product_name,product_name_fr,image_small_url,brands",
-                "page_size": 15,
+                "page_size": 40,    # fetch more since we filter aggressively
                 "page": 1,
+                "sort_by": "unique_scans_n",  # most popular products first
             },
             headers={"User-Agent": "FamilyPlannerApp/1.0 (https://family-planner-sage.vercel.app)"},
             timeout=8,
@@ -239,16 +240,25 @@ def search_products(
             )
             if not name:
                 continue
+            # Must have an image
+            image = (p.get("image_small_url") or "").strip()
+            if not image:
+                continue
+            # Must have a brand
             brands_raw = p.get("brands") or ""
             if isinstance(brands_raw, list):
                 brand = brands_raw[0].strip() if brands_raw else ""
             else:
                 brand = brands_raw.split(",")[0].strip()
+            if not brand:
+                continue
             results.append({
                 "name": name,
                 "brand": brand,
-                "image": p.get("image_small_url") or "",
+                "image": image,
             })
+            if len(results) >= 15:
+                break
         logger.info(f"Product search '{q}': {len(results)} results (total={data.get('total', {}).get('value', '?')})")
         return results
     except Exception as e:
