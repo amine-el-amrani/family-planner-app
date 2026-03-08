@@ -25,6 +25,7 @@ class ShoppingItem(Base):
     list_id = Column(Integer, ForeignKey("shopping_lists.id"), nullable=False)
     title = Column(String, nullable=False)
     quantity = Column(String, nullable=True)
+    image_url = Column(String, nullable=True)
     is_checked = Column(Boolean, default=False)
     added_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     checked_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)

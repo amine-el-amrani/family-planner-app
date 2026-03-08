@@ -23,6 +23,7 @@ class ListCreate(BaseModel):
 class ItemCreate(BaseModel):
     title: str
     quantity: Optional[str] = None
+    image_url: Optional[str] = None
 
 
 def _list_to_dict(lst: ShoppingList) -> dict:
@@ -44,6 +45,7 @@ def _item_to_dict(item: ShoppingItem) -> dict:
         "list_id": item.list_id,
         "title": item.title,
         "quantity": item.quantity,
+        "image_url": item.image_url,
         "is_checked": item.is_checked,
         "added_by": item.added_by.full_name if item.added_by else None,
         "checked_by": item.checked_by.full_name if item.checked_by else None,
@@ -139,6 +141,7 @@ def add_item(
         list_id=list_id,
         title=data.title.strip(),
         quantity=data.quantity,
+        image_url=data.image_url or None,
         added_by_id=current_user.id,
     )
     db.add(item)
