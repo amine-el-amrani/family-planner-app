@@ -104,8 +104,8 @@ def create_task(
     if assigned_user and assigned_user.id != current_user.id and assigned_user.push_token:
         send_push(
             assigned_user.push_token,
-            "Nouvelle tâche assignée",
-            f"{current_user.full_name} vous a assigné : '{task_data.title}'"
+            f"📋 {current_user.full_name}",
+            f"T'a confié '{task_data.title}' — à toi de jouer ! 💪"
         )
 
     return _task_to_dict(task)
@@ -252,13 +252,16 @@ def update_task(
     db.refresh(task)
 
     if assignee_push:
-        send_push(assignee_push, "Tâche modifiée",
-                       f"'{task.title}' a été modifiée par {current_user.full_name}")
+        send_push(assignee_push, f"✏️ {current_user.full_name}",
+                       f"A retouché '{task.title}' — jette un œil 👀")
 
     if creator_push:
-        status_msg = "terminée ✓" if task_data.status.value == "fait" else "remise en attente"
-        send_push(creator_push, "Tâche mise à jour",
-                       f"'{task.title}' {status_msg} par {current_user.full_name}")
+        if task_data.status.value == "fait":
+            send_push(creator_push, f"🎉 Tâche accomplie !",
+                           f"{current_user.full_name} a terminé '{task.title}' ✅")
+        else:
+            send_push(creator_push, f"↩️ Tâche rouverte",
+                           f"{current_user.full_name} a remis '{task.title}' en attente")
 
     return _task_to_dict(task)
 
@@ -291,8 +294,8 @@ def delete_task(
     db.commit()
 
     if assignee_id and assignee_id != current_user.id and assignee_push:
-        send_push(assignee_push, "Tâche supprimée",
-                       f"'{task_title}' a été supprimée par {current_user.full_name}")
+        send_push(assignee_push, f"🗑️ {current_user.full_name}",
+                       f"A supprimé la tâche '{task_title}'")
 
 
 @router.get("/agenda")

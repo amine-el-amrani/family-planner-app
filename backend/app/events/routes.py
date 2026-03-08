@@ -107,8 +107,8 @@ def create_event(
     for push_token in push_targets:
         send_push(
             push_token,
-            f"Nouvel événement · {family.name}",
-            f"'{event_data.title}' le {date_str} — Serez-vous présent(e) ?",
+            f"📅 {family.name}",
+            f"'{event_data.title}' le {date_str} — vous venez ? 👀",
         )
 
     return _event_to_dict(event, family.name)
@@ -155,7 +155,7 @@ def update_event(
     db.refresh(event)
 
     for push_token, title in push_targets:
-        send_push(push_token, "Événement modifié", f"'{title}' modifié par {current_user.full_name}")
+        send_push(push_token, f"✏️ {current_user.full_name}", f"A modifié '{title}' — vérifiez les nouvelles infos 📌")
 
     return _event_to_dict(event)
 
@@ -225,8 +225,10 @@ def update_rsvp(
     # Notify the creator when a member answers (but not when they reset to pending)
     creator_push = None
     if event.created_by_id != current_user.id and new_status != EventRsvpStatus.pending:
-        status_fr = "sera présent(e)" if new_status == EventRsvpStatus.going else "ne sera pas disponible"
-        msg = f"{current_user.full_name} {status_fr} pour '{event.title}'"
+        if new_status == EventRsvpStatus.going:
+            msg = f"{current_user.full_name} sera là pour '{event.title}' ! 🎉"
+        else:
+            msg = f"{current_user.full_name} ne pourra pas venir à '{event.title}' 😔"
         db.add(Notification(
             message=msg,
             user_id=event.created_by_id,
@@ -242,7 +244,10 @@ def update_rsvp(
     db.refresh(event)
 
     if creator_push:
-        send_push(creator_push[0], "Réponse RSVP", creator_push[1])
+        if new_status == EventRsvpStatus.going:
+            send_push(creator_push[0], f"🎉 Bonne nouvelle !", creator_push[1])
+        else:
+            send_push(creator_push[0], f"😔 Absent(e)", creator_push[1])
 
     return _event_to_dict(event)
 

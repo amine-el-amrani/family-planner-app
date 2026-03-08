@@ -155,8 +155,8 @@ def add_item(
             if member.id != current_user.id and member.push_token:
                 send_push(
                     member.push_token,
-                    f"Courses · {lst.name}",
-                    f"{current_user.full_name} a ajouté '{data.title}'",
+                    f"🛒 {lst.name}",
+                    f"{current_user.full_name} a ajouté '{data.title}' — n'oubliez pas ! 🧺",
                 )
     except Exception:
         pass

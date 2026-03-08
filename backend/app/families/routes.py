@@ -111,7 +111,8 @@ def invite_member(
         ))
         db.commit()
         if invited_user.push_token:
-            send_push(invited_user.push_token, "Nouvelle invitation", msg)
+            send_push(invited_user.push_token, f"📬 {current_user.full_name}",
+                      f"Vous invite dans '{family.name}' — rejoignez l'aventure ! 🏠")
     else:
         db.commit()
     return {"message": "Invitation sent"}
@@ -198,7 +199,8 @@ def accept_invitation(
 
     db.commit()
     if creator_push:
-        send_push(creator_push[0], "Famille rejointe", creator_push[1])
+        send_push(creator_push[0], f"🎉 L'équipe s'agrandit !",
+                  f"{current_user.full_name} a rejoint '{family.name}' — bienvenue !")
     return {"message": "Invitation accepted"}
 
 @router.post("/invitations/{invitation_id}/reject")
@@ -233,7 +235,8 @@ def reject_invitation(
 
     db.commit()
     if inviter_push:
-        send_push(inviter_push[0], "Invitation refusée", inviter_push[1])
+        send_push(inviter_push[0], f"😔 Invitation déclinée",
+                  f"{current_user.full_name} n'a pas pu rejoindre '{invitation.family.name}' cette fois")
     return {"message": "Invitation rejected"}
 
 @router.post("/{family_id}/leave")
