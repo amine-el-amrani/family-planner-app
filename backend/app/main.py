@@ -48,6 +48,16 @@ def _wait_for_db(max_retries: int = 10, delay: float = 3.0) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _wait_for_db()
+
+    # VAPID env var diagnostic — helps verify Railway has the vars loaded
+    _vapid_pem = _os.environ.get("VAPID_PRIVATE_PEM", "")
+    _vapid_pub = _os.environ.get("VAPID_PUBLIC_KEY", "")
+    logger.info(
+        f"Startup VAPID check: "
+        f"PEM={'SET(' + str(len(_vapid_pem)) + ' chars)' if _vapid_pem else 'MISSING'}, "
+        f"PUB={'SET(' + str(len(_vapid_pub)) + ' chars)' if _vapid_pub else 'MISSING'}"
+    )
+
     # Daily reminder at 08:00 every day
     scheduler.add_job(send_daily_reminders, "cron", hour=8, minute=0, id="daily_reminders")
     scheduler.start()

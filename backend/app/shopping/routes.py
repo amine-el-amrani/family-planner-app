@@ -1,8 +1,4 @@
-import json
 import logging
-import ssl
-import urllib.request
-import urllib.parse
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -198,29 +194,27 @@ def search_products(
     current_user: User = Depends(get_current_user),
 ):
     """Search products via Open Food Facts (server-side proxy to avoid CORS)."""
+    import requests as _requests
     q = q.strip()
     if len(q) < 2:
         return []
     try:
-        url = (
-            "https://world.openfoodfacts.org/api/v2/search?"
-            + urllib.parse.urlencode({
+        resp = _requests.get(
+            "https://world.openfoodfacts.org/api/v2/search",
+            params={
                 "search_terms": q,
                 "fields": "product_name,product_name_fr,generic_name,image_small_url,brands",
                 "page_size": "20",
                 "page": "1",
-            })
+            },
+            headers={"User-Agent": "FamilyPlannerApp/1.0 (https://family-planner-sage.vercel.app)"},
+            timeout=10,
         )
-        ctx = ssl.create_default_context()
-        req = urllib.request.Request(url, headers={
-            "User-Agent": "FamilyPlannerApp/1.0 (https://family-planner-sage.vercel.app)"
-        })
-        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
-            data = json.loads(resp.read())
+        resp.raise_for_status()
+        data = resp.json()
 
         results = []
         for p in data.get("products", []):
-            # Try multiple name fields
             name = (
                 (p.get("product_name_fr") or "").strip()
                 or (p.get("product_name") or "").strip()
