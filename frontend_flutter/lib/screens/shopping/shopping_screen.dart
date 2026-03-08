@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import '../../core/api_client.dart';
 import '../../theme/app_theme.dart';
@@ -423,7 +422,7 @@ class _ProductPickerSheetState extends State<_ProductPickerSheet> {
 
   final _searchCtrl = TextEditingController();
   final _customCtrl = TextEditingController();
-  final _offDio = Dio(); // separate Dio for Open Food Facts (no auth)
+  final _api = ApiClient();
   int _qty = 1;
   String _query = '';
   String? _selected;
@@ -436,7 +435,6 @@ class _ProductPickerSheetState extends State<_ProductPickerSheet> {
     _debounce?.cancel();
     _searchCtrl.dispose();
     _customCtrl.dispose();
-    _offDio.close();
     super.dispose();
   }
 
@@ -448,32 +446,17 @@ class _ProductPickerSheetState extends State<_ProductPickerSheet> {
       return;
     }
     setState(() => _apiLoading = true);
-    _debounce = Timer(const Duration(milliseconds: 400), () => _searchOff(q));
+    _debounce = Timer(const Duration(milliseconds: 400), () => _searchProducts(q));
   }
 
-  Future<void> _searchOff(String query) async {
+  Future<void> _searchProducts(String query) async {
     try {
-      final res = await _offDio.get(
-        'https://world.openfoodfacts.org/cgi/search.pl',
-        queryParameters: {
-          'search_terms': query,
-          'search_simple': '1',
-          'action': 'process',
-          'json': '1',
-          'page_size': '20',
-          'fields': 'product_name,image_small_url,brands',
-          'lc': 'fr',
-        },
-        options: Options(receiveTimeout: const Duration(seconds: 8)),
+      final res = await _api.dio.get(
+        '/shopping/search-products',
+        queryParameters: {'q': query},
       );
-      final raw = (res.data['products'] as List? ?? []);
-      final products = raw
-          .where((p) => (p['product_name'] as String?)?.trim().isNotEmpty == true)
-          .map<Map<String, dynamic>>((p) => {
-                'name': (p['product_name'] as String).trim(),
-                'brand': ((p['brands'] as String?) ?? '').split(',').first.trim(),
-                'image': (p['image_small_url'] as String?) ?? '',
-              })
+      final products = (res.data as List? ?? [])
+          .map<Map<String, dynamic>>((p) => Map<String, dynamic>.from(p))
           .toList();
       if (mounted) setState(() { _apiResults = products; _apiLoading = false; });
     } catch (_) {

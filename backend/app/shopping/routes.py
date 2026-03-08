@@ -1,5 +1,8 @@
+import json
+import urllib.request
+import urllib.parse
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -183,6 +186,44 @@ def delete_item(
         raise HTTPException(status_code=403, detail="Accès refusé")
     db.delete(item)
     db.commit()
+
+
+@router.get("/search-products")
+def search_products(
+    q: str = Query(default="", min_length=0),
+    current_user: User = Depends(get_current_user),
+):
+    """Search products via Open Food Facts (server-side proxy to avoid CORS)."""
+    if len(q.strip()) < 2:
+        return []
+    try:
+        url = (
+            "https://world.openfoodfacts.org/cgi/search.pl?"
+            + urllib.parse.urlencode({
+                "search_terms": q.strip(),
+                "search_simple": "1",
+                "action": "process",
+                "json": "1",
+                "page_size": "20",
+                "fields": "product_name,image_small_url,brands",
+            })
+        )
+        req = urllib.request.Request(url, headers={"User-Agent": "FamilyPlannerApp/1.0"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read())
+        results = []
+        for p in data.get("products", []):
+            name = (p.get("product_name") or "").strip()
+            if not name:
+                continue
+            results.append({
+                "name": name,
+                "brand": ((p.get("brands") or "").split(",")[0]).strip(),
+                "image": p.get("image_small_url") or "",
+            })
+        return results
+    except Exception:
+        return []
 
 
 @router.delete("/lists/{list_id}/checked", status_code=204)
