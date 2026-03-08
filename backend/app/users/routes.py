@@ -122,3 +122,25 @@ def vapid_public_key():
     """Return the VAPID public key for push subscription (no auth needed)."""
     from app.notifications.push import get_vapid_public_key
     return {"public_key": get_vapid_public_key()}
+
+
+@router.get("/me/push-status")
+def push_status(current_user: User = Depends(get_current_user)):
+    """Check if the current user has a push subscription saved."""
+    token = current_user.push_token or ""
+    return {
+        "has_subscription": token.startswith("{"),
+        "has_expo_token": token.startswith("ExponentPushToken["),
+        "endpoint_preview": token[:60] + "..." if len(token) > 60 else token,
+    }
+
+
+@router.post("/me/test-push")
+def test_push(current_user: User = Depends(get_current_user)):
+    """Send a test push notification to the current user (for debugging)."""
+    from app.notifications.push import send_push
+    token = current_user.push_token or ""
+    if not token:
+        return {"ok": False, "reason": "No push subscription saved for this user"}
+    send_push(token, "Test Family Planner", "Les notifications push fonctionnent !")
+    return {"ok": True, "token_preview": token[:60] + "..." if len(token) > 60 else token}
