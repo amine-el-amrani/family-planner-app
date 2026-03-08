@@ -232,6 +232,9 @@ def search_products(
         resp.raise_for_status()
         data = resp.json()
 
+        # Build relevance words: meaningful words from the query (≥3 chars)
+        query_words = [w.lower() for w in q.split() if len(w) >= 3]
+
         results = []
         for p in data.get("hits", []):
             name = (
@@ -252,6 +255,12 @@ def search_products(
                 brand = brands_raw.split(",")[0].strip()
             if not brand:
                 continue
+            # Relevance filter: at least one query word must appear in the product name
+            # This prevents "poulet" from returning "fondant chocolat" etc.
+            if query_words:
+                name_lower = name.lower()
+                if not any(word in name_lower for word in query_words):
+                    continue
             results.append({
                 "name": name,
                 "brand": brand,
