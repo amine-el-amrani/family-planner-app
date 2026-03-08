@@ -32,9 +32,58 @@
     body {
       overflow: hidden;
     }
+    /* Critical fix: flt-glass-pane must cover the full viewport to receive
+       pointer events and enable text input (keyboard/tap bridge) */
+    flt-glass-pane {
+      display: block !important;
+      position: fixed !important;
+      top: 0 !important;
+      left: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      overflow: hidden !important;
+    }
   </style>
 </head>
 <body>
+  <!-- Web Push helpers — must load before Flutter bootstrap -->
+  <script>
+  (function () {
+    var _pushReg = null;
+
+    window.initPushSW = function () {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        return Promise.resolve(false);
+      }
+      return navigator.serviceWorker
+        .register('/push_sw.js', { scope: '/push/' })
+        .then(function (reg) { _pushReg = reg; return true; })
+        .catch(function (e) { console.warn('Push SW failed:', e); return false; });
+    };
+
+    window.subscribeToPush = function (vapidPublicKey) {
+      var p = _pushReg ? Promise.resolve(true) : window.initPushSW();
+      return p.then(function (ok) {
+        if (!ok || !_pushReg) return null;
+        return Notification.requestPermission().then(function (perm) {
+          if (perm !== 'granted') return null;
+          return _pushReg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: _b64ToUint8(vapidPublicKey),
+          }).then(function (s) { return JSON.stringify(s); })
+            .catch(function (e) { console.warn('Subscribe failed:', e); return null; });
+        });
+      });
+    };
+
+    function _b64ToUint8(b64) {
+      var pad = '='.repeat((4 - (b64.length % 4)) % 4);
+      var raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+      return Uint8Array.from(Array.from(raw, function (c) { return c.charCodeAt(0); }));
+    }
+  })();
+  </script>
+
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import '../theme/app_theme.dart';
 
 class AppShell extends StatelessWidget {
   final Widget child;
@@ -64,45 +63,6 @@ class AppShell extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-// Badge wrapper for bottom nav item
-class _BadgeIcon extends StatelessWidget {
-  final Widget icon;
-  final int count;
-  const _BadgeIcon({required this.icon, required this.count});
-
-  @override
-  Widget build(BuildContext context) {
-    if (count <= 0) return icon;
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        icon,
-        Positioned(
-          right: -6,
-          top: -4,
-          child: Container(
-            padding: const EdgeInsets.all(3),
-            decoration: const BoxDecoration(
-              color: C.primary,
-              shape: BoxShape.circle,
-            ),
-            constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-            child: Text(
-              count > 99 ? '99+' : '$count',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 9,
-                fontWeight: FontWeight.w700,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ),
-      ],
     );
   }
 }

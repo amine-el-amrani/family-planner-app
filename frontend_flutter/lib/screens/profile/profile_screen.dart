@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:dio/dio.dart';
 import '../../core/api_client.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/push_service.dart';
 import '../../theme/app_theme.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -20,6 +22,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _loading = true;
   bool _editing = false;
   bool _saving = false;
+  bool _pushLoading = false;
 
   @override
   void initState() {
@@ -87,13 +90,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (result == null) return;
 
     try {
+      final bytes = await result.readAsBytes();
       final formData = FormData.fromMap({
-        'file': await MultipartFile.fromFile(result.path, filename: 'profile.jpg'),
+        'file': MultipartFile.fromBytes(bytes, filename: 'profile.jpg'),
       });
       await _api.dio.post('/users/me/profile-image', data: formData);
       await _fetchProfile();
-      await context.read<AuthProvider>().refreshUser();
       if (mounted) {
+        await context.read<AuthProvider>().refreshUser();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Photo mise à jour !'),
@@ -114,11 +118,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  String? _avatarUrl() {
+  Future<void> _enablePush() async {
+    setState(() => _pushLoading = true);
+    try {
+      await PushService.initialize();
+      await PushService.subscribeAndRegister();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Notifications push activées !'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Impossible d\'activer les notifications. Vérifiez les permissions dans les réglages du navigateur.'),
+            backgroundColor: C.destructive,
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 5),
+          ),
+        );
+      }
+    }
+    if (mounted) setState(() => _pushLoading = false);
+  }
+
+  ImageProvider? _avatarImage() {
     final img = _profile?['profile_image'];
     if (img == null) return null;
-    if (img.startsWith('http')) return img;
-    return '${_api.dio.options.baseUrl}$img';
+    if (img.startsWith('data:')) {
+      try {
+        final b64 = img.split(',')[1];
+        return MemoryImage(base64Decode(b64));
+      } catch (_) {}
+    }
+    if (img.startsWith('http')) return NetworkImage(img);
+    return NetworkImage('${_api.dio.options.baseUrl}$img');
   }
 
   @override
@@ -158,10 +196,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         CircleAvatar(
                           radius: 48,
                           backgroundColor: C.primaryLight,
-                          backgroundImage: _avatarUrl() != null
-                              ? NetworkImage(_avatarUrl()!)
-                              : null,
-                          child: _avatarUrl() == null
+                          backgroundImage: _avatarImage(),
+                          child: _avatarImage() == null
                               ? const Icon(
                                   Icons.account_circle,
                                   size: 48,
@@ -447,8 +483,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ],
 
+                    // Push notifications
+                    const SizedBox(height: 12),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: OutlinedButton.icon(
+                        onPressed: _pushLoading ? null : _enablePush,
+                        icon: _pushLoading
+                            ? const SizedBox(
+                                width: 18, height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: C.primary),
+                              )
+                            : const Icon(Icons.notifications_outlined, color: C.primary),
+                        label: const Text('Activer les notifications push'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: C.primary,
+                          side: const BorderSide(color: C.primary),
+                          minimumSize: const Size.fromHeight(48),
+                        ),
+                      ),
+                    ),
+
                     // Logout
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 12),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: OutlinedButton.icon(

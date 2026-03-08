@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/api_client.dart';
+import '../services/push_service.dart';
 
 class AuthProvider extends ChangeNotifier {
   final _api = ApiClient();
@@ -27,6 +28,10 @@ class AuthProvider extends ChangeNotifier {
     }
     _isLoading = false;
     notifyListeners();
+    // Re-subscribe to push on app start (token may have rotated)
+    if (_isAuthenticated) {
+      PushService.initialize().then((_) => PushService.subscribeAndRegister());
+    }
   }
 
   Future<void> login(String email, String password) async {
@@ -41,6 +46,8 @@ class AuthProvider extends ChangeNotifier {
     _user = me.data;
     _isAuthenticated = true;
     notifyListeners();
+    // Subscribe to push notifications after login
+    PushService.initialize().then((_) => PushService.subscribeAndRegister());
   }
 
   Future<void> register(String fullName, String email, String password) async {

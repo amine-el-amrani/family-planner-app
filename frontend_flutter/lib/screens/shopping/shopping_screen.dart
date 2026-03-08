@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import '../../core/api_client.dart';
 import '../../theme/app_theme.dart';
@@ -12,6 +14,7 @@ class ShoppingScreen extends StatefulWidget {
 class _ShoppingScreenState extends State<ShoppingScreen> {
   final _api = ApiClient();
   List<Map<String, dynamic>> _lists = [];
+  List<Map<String, dynamic>> _families = [];
   bool _loading = true;
   int? _selectedListId;
   Map<String, dynamic>? _selectedList;
@@ -19,20 +22,30 @@ class _ShoppingScreenState extends State<ShoppingScreen> {
   bool _loadingItems = false;
 
   final _listNameCtrl = TextEditingController();
-  final _itemTitleCtrl = TextEditingController();
-  final _itemQtyCtrl = TextEditingController(text: '1');
 
   @override
   void initState() {
     super.initState();
     _fetchLists();
+    _fetchFamilies();
+  }
+
+  Future<void> _fetchFamilies() async {
+    try {
+      final res = await _api.dio.get('/families/');
+      if (mounted) {
+        setState(() {
+          _families = List<Map<String, dynamic>>.from(
+            (res.data as List).map((e) => Map<String, dynamic>.from(e)),
+          );
+        });
+      }
+    } catch (_) {}
   }
 
   @override
   void dispose() {
     _listNameCtrl.dispose();
-    _itemTitleCtrl.dispose();
-    _itemQtyCtrl.dispose();
     super.dispose();
   }
 
@@ -72,36 +85,70 @@ class _ShoppingScreenState extends State<ShoppingScreen> {
     }
   }
 
-  Future<void> _createList() async {
-    if (_listNameCtrl.text.trim().isEmpty) return;
+  Future<void> _createList(int? familyId) async {
+    if (_listNameCtrl.text.trim().isEmpty || familyId == null) return;
     try {
       await _api.dio.post('/shopping/lists', data: {
         'name': _listNameCtrl.text.trim(),
+        'family_id': familyId,
       });
       if (mounted) Navigator.pop(context);
       _listNameCtrl.clear();
       _fetchLists();
-    } catch (_) {}
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Erreur lors de la création de la liste'),
+          backgroundColor: C.destructive,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+    }
   }
 
-  Future<void> _addItem() async {
-    if (_itemTitleCtrl.text.trim().isEmpty || _selectedListId == null) return;
+  Future<void> _addItem(String title, int qty) async {
+    if (title.trim().isEmpty || _selectedListId == null) return;
+    // Optimistic update — show item instantly before API confirms
+    final tempId = -DateTime.now().millisecondsSinceEpoch;
+    setState(() => _items.insert(0, {
+          'id': tempId,
+          'title': title.trim(),
+          'quantity': qty.toString(),
+          'is_checked': false,
+        }));
     try {
       await _api.dio.post('/shopping/lists/$_selectedListId/items', data: {
-        'title': _itemTitleCtrl.text.trim(),
-        'quantity': _itemQtyCtrl.text.trim().isEmpty ? 1 : int.tryParse(_itemQtyCtrl.text) ?? 1,
+        'title': title.trim(),
+        'quantity': qty.toString(),
       });
-      _itemTitleCtrl.clear();
-      _itemQtyCtrl.text = '1';
-      _loadItems(_selectedListId!);
-    } catch (_) {}
+      _loadItems(_selectedListId!); // replace temp with real server data
+    } catch (e) {
+      setState(() => _items.removeWhere((i) => i['id'] == tempId));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Erreur lors de l\'ajout de l\'article'),
+          backgroundColor: C.destructive,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+    }
   }
 
   Future<void> _toggleItem(Map<String, dynamic> item) async {
+    // Optimistic toggle — flip immediately, revert on error
+    final idx = _items.indexWhere((i) => i['id'] == item['id']);
+    if (idx != -1) {
+      final toggled = Map<String, dynamic>.from(item);
+      toggled['is_checked'] = !(item['is_checked'] ?? false);
+      setState(() => _items[idx] = toggled);
+    }
     try {
       await _api.dio.patch('/shopping/items/${item['id']}/toggle');
       _loadItems(_selectedListId!);
-    } catch (_) {}
+    } catch (_) {
+      // Revert optimistic change on failure
+      if (idx != -1) setState(() => _items[idx] = item);
+    }
   }
 
   Future<void> _deleteItem(int itemId) async {
@@ -112,58 +159,87 @@ class _ShoppingScreenState extends State<ShoppingScreen> {
   }
 
   void _showCreateListSheet() {
+    int? selectedFamilyId =
+        _families.isNotEmpty ? _families.first['id'] as int : null;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: Container(
-          decoration: const BoxDecoration(
-            color: C.surface,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: C.border,
-                    borderRadius: BorderRadius.circular(2),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => Padding(
+          padding:
+              EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            decoration: const BoxDecoration(
+              color: C.surface,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: C.border,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Nouvelle liste',
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                  color: C.textPrimary,
+                const SizedBox(height: 16),
+                const Text(
+                  'Nouvelle liste',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: C.textPrimary,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _listNameCtrl,
-                autofocus: true,
-                decoration: const InputDecoration(hintText: 'Nom de la liste'),
-                onSubmitted: (_) => _createList(),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: _createList,
-                child: const Text('Créer'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Annuler'),
-              ),
-            ],
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _listNameCtrl,
+                  autofocus: true,
+                  decoration:
+                      const InputDecoration(hintText: 'Nom de la liste'),
+                  onSubmitted: (_) => _createList(selectedFamilyId),
+                ),
+                if (_families.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<int>(
+                    initialValue: selectedFamilyId,
+                    decoration: const InputDecoration(hintText: 'Famille'),
+                    items: _families
+                        .map((f) => DropdownMenuItem<int>(
+                              value: f['id'] as int,
+                              child: Text(f['name'] ?? ''),
+                            ))
+                        .toList(),
+                    onChanged: (v) =>
+                        setSheetState(() => selectedFamilyId = v),
+                  ),
+                ] else ...[
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Vous devez rejoindre une famille pour créer une liste.',
+                    style: TextStyle(color: C.textSecondary, fontSize: 13),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: _families.isNotEmpty
+                      ? () => _createList(selectedFamilyId)
+                      : null,
+                  child: const Text('Créer'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Annuler'),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -177,8 +253,6 @@ class _ShoppingScreenState extends State<ShoppingScreen> {
         list: _selectedList!,
         items: _items,
         loading: _loadingItems,
-        itemTitleCtrl: _itemTitleCtrl,
-        itemQtyCtrl: _itemQtyCtrl,
         onBack: () => setState(() {
           _selectedListId = null;
           _selectedList = null;
@@ -196,10 +270,10 @@ class _ShoppingScreenState extends State<ShoppingScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 16, 20, 12),
               child: Row(
-                children: const [
+                children: [
                   Expanded(
                     child: Text(
                       'Courses',
@@ -238,7 +312,8 @@ class _ShoppingScreenState extends State<ShoppingScreen> {
                                   : 0.0;
                               return ListTile(
                                 onTap: () => _loadItems(list['id']),
-                                contentPadding: const EdgeInsets.symmetric(
+                                contentPadding:
+                                    const EdgeInsets.symmetric(
                                   horizontal: 20,
                                   vertical: 8,
                                 ),
@@ -265,7 +340,8 @@ class _ShoppingScreenState extends State<ShoppingScreen> {
                                   ),
                                 ),
                                 subtitle: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
                                   children: [
                                     if (list['family_name'] != null)
                                       Text(
@@ -281,9 +357,8 @@ class _ShoppingScreenState extends State<ShoppingScreen> {
                                         value: progress.toDouble(),
                                         backgroundColor: C.borderLight,
                                         valueColor:
-                                            const AlwaysStoppedAnimation<Color>(
-                                          C.primary,
-                                        ),
+                                            const AlwaysStoppedAnimation<
+                                                Color>(C.primary),
                                         minHeight: 3,
                                       ),
                                       const SizedBox(height: 2),
@@ -322,14 +397,362 @@ class _ShoppingScreenState extends State<ShoppingScreen> {
   }
 }
 
+// ─── Product picker sheet ──────────────────────────────────────────────────────
+
+class _ProductPickerSheet extends StatefulWidget {
+  final Future<void> Function(String title, int qty) onAdd;
+  const _ProductPickerSheet({required this.onAdd});
+
+  @override
+  State<_ProductPickerSheet> createState() => _ProductPickerSheetState();
+}
+
+class _ProductPickerSheetState extends State<_ProductPickerSheet> {
+  // Common products shown when search is empty
+  static const _commonProducts = [
+    ('🥚', 'Œufs'), ('🥩', 'Bœuf haché'), ('🍗', 'Poulet'), ('🐟', 'Poisson'),
+    ('🍞', 'Pain de mie'), ('🥖', 'Baguette'), ('🥛', 'Lait'), ('🧀', 'Fromage'),
+    ('🧈', 'Beurre'), ('🍎', 'Pommes'), ('🍊', 'Oranges'), ('🍌', 'Bananes'),
+    ('🍅', 'Tomates'), ('🥕', 'Carottes'), ('🥦', 'Brocoli'), ('🥬', 'Salade'),
+    ('🧅', 'Oignons'), ('🥔', 'Pommes de terre'), ('🍝', 'Pâtes'), ('🍚', 'Riz'),
+    ('🌾', 'Farine'), ('🍯', 'Miel'), ('🧂', 'Sel'), ('🫒', 'Huile d\'olive'),
+    ('☕', 'Café'), ('🍵', 'Thé'), ('🧃', 'Jus d\'orange'), ('💧', 'Eau'),
+    ('🍫', 'Chocolat'), ('🧻', 'Papier WC'), ('🧴', 'Shampooing'), ('🍺', 'Bière'),
+    ('🍷', 'Vin'), ('🥣', 'Céréales'), ('🫙', 'Conserves'), ('🧹', 'Liquide vaisselle'),
+  ];
+
+  final _searchCtrl = TextEditingController();
+  final _customCtrl = TextEditingController();
+  final _offDio = Dio(); // separate Dio for Open Food Facts (no auth)
+  int _qty = 1;
+  String _query = '';
+  String? _selected;
+  List<Map<String, dynamic>> _apiResults = [];
+  bool _apiLoading = false;
+  Timer? _debounce;
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchCtrl.dispose();
+    _customCtrl.dispose();
+    _offDio.close();
+    super.dispose();
+  }
+
+  void _onQueryChanged(String q) {
+    setState(() => _query = q);
+    _debounce?.cancel();
+    if (q.length < 2) {
+      setState(() { _apiResults = []; _apiLoading = false; });
+      return;
+    }
+    setState(() => _apiLoading = true);
+    _debounce = Timer(const Duration(milliseconds: 400), () => _searchOff(q));
+  }
+
+  Future<void> _searchOff(String query) async {
+    try {
+      final res = await _offDio.get(
+        'https://world.openfoodfacts.org/cgi/search.pl',
+        queryParameters: {
+          'search_terms': query,
+          'search_simple': '1',
+          'action': 'process',
+          'json': '1',
+          'page_size': '20',
+          'fields': 'product_name,image_small_url,brands',
+          'lc': 'fr',
+        },
+        options: Options(receiveTimeout: const Duration(seconds: 8)),
+      );
+      final raw = (res.data['products'] as List? ?? []);
+      final products = raw
+          .where((p) => (p['product_name'] as String?)?.trim().isNotEmpty == true)
+          .map<Map<String, dynamic>>((p) => {
+                'name': (p['product_name'] as String).trim(),
+                'brand': ((p['brands'] as String?) ?? '').split(',').first.trim(),
+                'image': (p['image_small_url'] as String?) ?? '',
+              })
+          .toList();
+      if (mounted) setState(() { _apiResults = products; _apiLoading = false; });
+    } catch (_) {
+      if (mounted) setState(() { _apiResults = []; _apiLoading = false; });
+    }
+  }
+
+  List<(String, String)> get _filteredCommon {
+    if (_query.isEmpty) return _commonProducts;
+    final q = _query.toLowerCase();
+    return _commonProducts.where((p) => p.$2.toLowerCase().contains(q)).toList();
+  }
+
+  void _selectProduct(String name) {
+    setState(() {
+      _selected = name;
+      _customCtrl.clear();
+    });
+  }
+
+  void _submit() {
+    final title = _customCtrl.text.trim().isNotEmpty
+        ? _customCtrl.text.trim()
+        : _selected ?? '';
+    if (title.isEmpty) return;
+    Navigator.of(context).pop();
+    widget.onAdd(title, _qty);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final useApi = _query.length >= 2;
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: C.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Handle
+          Padding(
+            padding: const EdgeInsets.only(top: 12, bottom: 8),
+            child: Center(
+              child: Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(
+                  color: C.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+          ),
+          // Title
+          const Padding(
+            padding: EdgeInsets.fromLTRB(20, 0, 20, 12),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Ajouter un article',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: C.textPrimary),
+              ),
+            ),
+          ),
+          // Search field
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: TextField(
+              controller: _searchCtrl,
+              decoration: InputDecoration(
+                hintText: 'Rechercher parmi des millions de produits...',
+                prefixIcon: const Icon(Icons.search, color: C.textSecondary),
+                isDense: true,
+                suffixIcon: _query.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, size: 18),
+                        onPressed: () {
+                          _searchCtrl.clear();
+                          _onQueryChanged('');
+                        },
+                      )
+                    : null,
+              ),
+              onChanged: _onQueryChanged,
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Results area
+          SizedBox(
+            height: 200,
+            child: useApi
+                ? _apiLoading
+                    ? const Center(child: CircularProgressIndicator(color: C.primary, strokeWidth: 2))
+                    : _apiResults.isEmpty
+                        ? Center(
+                            child: Text(
+                              'Aucun produit trouvé pour "$_query"',
+                              style: const TextStyle(color: C.textSecondary, fontSize: 13),
+                            ),
+                          )
+                        : ListView.builder(
+                            padding: EdgeInsets.zero,
+                            itemCount: _apiResults.length,
+                            itemBuilder: (ctx, i) {
+                              final p = _apiResults[i];
+                              final isSelected = _selected == p['name'] && _customCtrl.text.trim().isEmpty;
+                              return ListTile(
+                                dense: true,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+                                leading: ClipRRect(
+                                  borderRadius: BorderRadius.circular(6),
+                                  child: p['image'] != ''
+                                      ? Image.network(
+                                          p['image'],
+                                          width: 40, height: 40,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) => Container(
+                                            width: 40, height: 40,
+                                            color: C.surfaceAlt,
+                                            child: const Icon(Icons.shopping_basket_outlined, size: 20, color: C.textTertiary),
+                                          ),
+                                        )
+                                      : Container(
+                                          width: 40, height: 40,
+                                          color: C.surfaceAlt,
+                                          child: const Icon(Icons.shopping_basket_outlined, size: 20, color: C.textTertiary),
+                                        ),
+                                ),
+                                title: Text(
+                                  p['name'],
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: isSelected ? C.primary : C.textPrimary,
+                                  ),
+                                ),
+                                subtitle: p['brand'] != ''
+                                    ? Text(p['brand'], maxLines: 1, style: const TextStyle(fontSize: 12, color: C.textSecondary))
+                                    : null,
+                                trailing: isSelected
+                                    ? const Icon(Icons.check_circle, color: C.primary, size: 20)
+                                    : null,
+                                tileColor: isSelected ? C.primaryLight : null,
+                                onTap: () => _selectProduct(p['name']),
+                              );
+                            },
+                          )
+                // Common products grid
+                : _filteredCommon.isEmpty
+                    ? const Center(
+                        child: Text('Aucun produit trouvé', style: TextStyle(color: C.textSecondary)),
+                      )
+                    : GridView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 4,
+                          childAspectRatio: 0.85,
+                          crossAxisSpacing: 8,
+                          mainAxisSpacing: 8,
+                        ),
+                        itemCount: _filteredCommon.length,
+                        itemBuilder: (ctx, i) {
+                          final (emoji, name) = _filteredCommon[i];
+                          final isSelected = _selected == name && _customCtrl.text.trim().isEmpty;
+                          return GestureDetector(
+                            onTap: () => _selectProduct(name),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 150),
+                              decoration: BoxDecoration(
+                                color: isSelected ? C.primaryLight : C.surfaceAlt,
+                                borderRadius: BorderRadius.circular(C.radiusBase),
+                                border: Border.all(
+                                  color: isSelected ? C.primary : Colors.transparent,
+                                  width: 2,
+                                ),
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(emoji, style: const TextStyle(fontSize: 24)),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: isSelected ? C.primary : C.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+          ),
+
+          const SizedBox(height: 10),
+          // Custom product field
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: TextField(
+              controller: _customCtrl,
+              decoration: const InputDecoration(
+                hintText: 'Ou saisir un article personnalisé...',
+                isDense: true,
+              ),
+              onChanged: (v) => setState(() {
+                if (v.isNotEmpty) _selected = null;
+              }),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Qty + Add button
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: C.border),
+                    borderRadius: BorderRadius.circular(C.radiusBase),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: Icon(Icons.remove, size: 18, color: _qty > 1 ? C.textPrimary : C.textTertiary),
+                        onPressed: () { if (_qty > 1) setState(() => _qty--); },
+                        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                        padding: EdgeInsets.zero,
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Text('$_qty', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: C.textPrimary)),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.add, size: 18),
+                        onPressed: () => setState(() => _qty++),
+                        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                        padding: EdgeInsets.zero,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: (_selected != null || _customCtrl.text.trim().isNotEmpty) ? _submit : null,
+                    child: const Text('Ajouter'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── List detail view ──────────────────────────────────────────────────────────
+
 class _ListDetailView extends StatelessWidget {
   final Map<String, dynamic> list;
   final List<Map<String, dynamic>> items;
   final bool loading;
-  final TextEditingController itemTitleCtrl;
-  final TextEditingController itemQtyCtrl;
   final VoidCallback onBack;
-  final VoidCallback onAddItem;
+  final Future<void> Function(String title, int qty) onAddItem;
   final ValueChanged<Map<String, dynamic>> onToggleItem;
   final ValueChanged<int> onDeleteItem;
   final VoidCallback onRefresh;
@@ -337,8 +760,6 @@ class _ListDetailView extends StatelessWidget {
     required this.list,
     required this.items,
     required this.loading,
-    required this.itemTitleCtrl,
-    required this.itemQtyCtrl,
     required this.onBack,
     required this.onAddItem,
     required this.onToggleItem,
@@ -346,13 +767,21 @@ class _ListDetailView extends StatelessWidget {
     required this.onRefresh,
   });
 
+  void _openPicker(BuildContext ctx) {
+    showModalBottomSheet(
+      context: ctx,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ProductPickerSheet(onAdd: onAddItem),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final pending = items.where((i) => !(i['is_checked'] ?? false)).toList();
     final checked = items.where((i) => i['is_checked'] ?? false).toList();
-    final progress = items.isNotEmpty
-        ? checked.length / items.length
-        : 0.0;
+    final progress =
+        items.isNotEmpty ? checked.length / items.length : 0.0;
 
     return Scaffold(
       backgroundColor: C.background,
@@ -366,22 +795,38 @@ class _ListDetailView extends StatelessWidget {
           children: [
             Text(
               list['name'] ?? '',
-              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+              style: const TextStyle(
+                  fontSize: 17, fontWeight: FontWeight.w700),
             ),
             if (list['family_name'] != null)
               Text(
                 list['family_name'],
-                style: const TextStyle(fontSize: 12, color: C.textSecondary),
+                style: const TextStyle(
+                    fontSize: 12, color: C.textSecondary),
               ),
           ],
         ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Builder(
+              builder: (innerCtx) => TextButton.icon(
+                onPressed: () => _openPicker(innerCtx),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Ajouter'),
+                style: TextButton.styleFrom(foregroundColor: C.primary),
+              ),
+            ),
+          ),
+        ],
       ),
       body: Column(
         children: [
           // Progress bar
           if (items.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Column(
                 children: [
                   LinearProgressIndicator(
@@ -404,44 +849,6 @@ class _ListDetailView extends StatelessWidget {
               ),
             ),
 
-          // Add item input
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: itemTitleCtrl,
-                    decoration: const InputDecoration(
-                      hintText: 'Ajouter un article...',
-                      isDense: true,
-                    ),
-                    onSubmitted: (_) => onAddItem(),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 60,
-                  child: TextField(
-                    controller: itemQtyCtrl,
-                    keyboardType: TextInputType.number,
-                    textAlign: TextAlign.center,
-                    decoration: const InputDecoration(
-                      hintText: 'Qté',
-                      isDense: true,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  onPressed: onAddItem,
-                  icon: const Icon(Icons.add_circle, color: C.primary, size: 28),
-                  padding: EdgeInsets.zero,
-                ),
-              ],
-            ),
-          ),
-
           const Divider(height: 1),
 
           // Items list
@@ -450,44 +857,73 @@ class _ListDetailView extends StatelessWidget {
                 ? const Center(
                     child: CircularProgressIndicator(color: C.primary),
                   )
-                : RefreshIndicator(
-                    onRefresh: () async => onRefresh(),
-                    color: C.primary,
-                    child: ListView(
-                      children: [
-                        // Pending items
-                        ...pending.map(
-                          (item) => _ShoppingItem(
-                            item: item,
-                            onToggle: () => onToggleItem(item),
-                            onDelete: () => onDeleteItem(item['id']),
-                          ),
-                        ),
-                        // Checked items
-                        if (checked.isNotEmpty) ...[
-                          const Padding(
-                            padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-                            child: Text(
-                              'DANS LE PANIER',
+                : items.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(
+                              Icons.shopping_basket_outlined,
+                              size: 48,
+                              color: C.textTertiary,
+                            ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'Liste vide',
                               style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: C.textTertiary,
-                                letterSpacing: 0.8,
+                                fontSize: 16,
+                                color: C.textSecondary,
                               ),
                             ),
-                          ),
-                          ...checked.map(
-                            (item) => _ShoppingItem(
-                              item: item,
-                              onToggle: () => onToggleItem(item),
-                              onDelete: () => onDeleteItem(item['id']),
+                            const SizedBox(height: 8),
+                            Builder(
+                              builder: (innerCtx) => TextButton.icon(
+                                onPressed: () => _openPicker(innerCtx),
+                                icon: const Icon(Icons.add),
+                                label: const Text('Ajouter un article'),
+                              ),
                             ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
+                          ],
+                        ),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: () async => onRefresh(),
+                        color: C.primary,
+                        child: ListView(
+                          children: [
+                            ...pending.map(
+                              (item) => _ShoppingItem(
+                                item: item,
+                                onToggle: () => onToggleItem(item),
+                                onDelete: () => onDeleteItem(item['id']),
+                              ),
+                            ),
+                            if (checked.isNotEmpty) ...[
+                              const Padding(
+                                padding:
+                                    EdgeInsets.fromLTRB(16, 16, 16, 8),
+                                child: Text(
+                                  'DANS LE PANIER',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: C.textTertiary,
+                                    letterSpacing: 0.8,
+                                  ),
+                                ),
+                              ),
+                              ...checked.map(
+                                (item) => _ShoppingItem(
+                                  item: item,
+                                  onToggle: () => onToggleItem(item),
+                                  onDelete: () =>
+                                      onDeleteItem(item['id']),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
           ),
         ],
       ),
@@ -519,7 +955,8 @@ class _ShoppingItem extends StatelessWidget {
         child: const Icon(Icons.delete_outline, color: Colors.white),
       ),
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
         leading: GestureDetector(
           onTap: onToggle,
           child: Container(
@@ -548,7 +985,8 @@ class _ShoppingItem extends StatelessWidget {
         ),
         trailing: item['quantity'] != null && item['quantity'] != 1
             ? Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: C.surfaceAlt,
                   borderRadius: BorderRadius.circular(C.radiusFull),

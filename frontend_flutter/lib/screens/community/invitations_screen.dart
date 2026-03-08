@@ -35,7 +35,7 @@ class _InvitationsScreenState extends State<InvitationsScreen>
     setState(() => _loading = true);
     try {
       final results = await Future.wait([
-        _api.dio.get('/families/invitations'),
+        _api.dio.get('/families/my-invitations'),
         _api.dio.get('/families/my-sent-invitations'),
       ]);
       setState(() {
@@ -197,7 +197,7 @@ class _ReceivedInvitationTile extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        'Invité par ${invitation['invited_by_name'] ?? ''}',
+                        'Invité par ${invitation['invited_by'] ?? ''}',
                         style: const TextStyle(
                           fontSize: 13,
                           color: C.textSecondary,
@@ -257,7 +257,7 @@ class _SentInvitationTile extends StatelessWidget {
         child: const Icon(Icons.person_outline, color: C.primary),
       ),
       title: Text(
-        invitation['invited_email'] ?? '',
+        invitation['email'] ?? '',
         style: const TextStyle(
           fontSize: 15,
           fontWeight: FontWeight.w500,

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -22,6 +23,8 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Map<String, dynamic>> _weekEvents = [];
   Map<String, dynamic>? _karma;
   bool _loading = true;
+  int _notifCount = 0;
+  Timer? _notifTimer;
 
   // Add task form
   final _titleCtrl = TextEditingController();
@@ -45,15 +48,32 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadData();
+    _fetchNotifCount();
+    _notifTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _fetchNotifCount(),
+    );
   }
 
   @override
   void dispose() {
+    _notifTimer?.cancel();
     _titleCtrl.dispose();
     _descCtrl.dispose();
     _eventTitleCtrl.dispose();
     _eventDescCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _fetchNotifCount() async {
+    try {
+      final res = await _api.dio.get('/notifications/');
+      if (mounted) {
+        setState(() {
+          _notifCount = (res.data as List? ?? []).length;
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadData() async {
@@ -138,7 +158,15 @@ class _HomeScreenState extends State<HomeScreen> {
         _assignedToId = null;
       });
       _loadData();
-    } catch (_) {}
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Erreur lors de la création de la tâche'),
+          backgroundColor: C.destructive,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+    }
   }
 
   Future<void> _createEvent() async {
@@ -152,7 +180,7 @@ class _HomeScreenState extends State<HomeScreen> {
         'description': _eventDescCtrl.text.trim().isEmpty
             ? null
             : _eventDescCtrl.text.trim(),
-        'date': DateFormat('yyyy-MM-dd').format(_eventDate),
+        'event_date': DateFormat('yyyy-MM-dd').format(_eventDate),
         'time_from': timeStr,
         'family_id': _eventFamilyId,
       });
@@ -165,7 +193,15 @@ class _HomeScreenState extends State<HomeScreen> {
         _eventFamilyId = null;
       });
       _loadData();
-    } catch (_) {}
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Erreur lors de la création de l\'événement'),
+          backgroundColor: C.destructive,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+    }
   }
 
   void _showFabChoiceModal() {
@@ -337,11 +373,54 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ],
                               ),
                             ),
-                            IconButton(
-                              onPressed: () => context.push('/notifications'),
-                              icon: const Icon(
-                                Icons.notifications_outlined,
-                                color: C.textSecondary,
+                            GestureDetector(
+                              onTap: () async {
+                                await context.push('/notifications');
+                                _fetchNotifCount();
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.all(8),
+                                child: Stack(
+                                  clipBehavior: Clip.none,
+                                  children: [
+                                    Icon(
+                                      _notifCount > 0
+                                          ? Icons.notifications
+                                          : Icons.notifications_outlined,
+                                      color: _notifCount > 0
+                                          ? C.primary
+                                          : C.textSecondary,
+                                      size: 26,
+                                    ),
+                                    if (_notifCount > 0)
+                                      Positioned(
+                                        right: -5,
+                                        top: -4,
+                                        child: Container(
+                                          padding: const EdgeInsets.all(3),
+                                          decoration: const BoxDecoration(
+                                            color: C.primary,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          constraints: const BoxConstraints(
+                                            minWidth: 17,
+                                            minHeight: 17,
+                                          ),
+                                          child: Text(
+                                            _notifCount > 99
+                                                ? '99+'
+                                                : '$_notifCount',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
                               ),
                             ),
                           ],
@@ -910,6 +989,47 @@ class _AddTaskSheet extends StatefulWidget {
 }
 
 class _AddTaskSheetState extends State<_AddTaskSheet> {
+  final _api = ApiClient();
+  late String _priority;
+  late String _visibility;
+  DateTime? _dueDate;
+  int? _familyId;
+  int? _assignedToId;
+  List<Map<String, dynamic>> _familyMembers = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _priority = widget.priority;
+    _visibility = widget.visibility;
+    _dueDate = widget.dueDate;
+    _familyId = widget.familyId;
+    _assignedToId = widget.assignedToId;
+    _familyMembers = List.from(widget.familyMembers);
+  }
+
+  Future<void> _onFamilyChanged(int? fid) async {
+    setState(() {
+      _familyId = fid;
+      _assignedToId = null;
+      _familyMembers = [];
+    });
+    widget.onFamilyChanged(fid);
+    widget.onAssignedChanged(null);
+    if (fid != null) {
+      try {
+        final res = await _api.dio.get('/families/$fid/members');
+        if (mounted) {
+          setState(() {
+            _familyMembers = List<Map<String, dynamic>>.from(
+              (res.data as List).map((e) => Map<String, dynamic>.from(e)),
+            );
+          });
+        }
+      } catch (_) {}
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -968,8 +1088,11 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
                   ('haute', 'Haute'),
                   ('urgente', 'Urgente'),
                 ],
-                selected: widget.priority,
-                onSelected: widget.onPriorityChanged,
+                selected: _priority,
+                onSelected: (v) {
+                  setState(() => _priority = v);
+                  widget.onPriorityChanged(v);
+                },
               ),
               const SizedBox(height: 12),
               // Visibility
@@ -977,8 +1100,11 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
               const SizedBox(height: 6),
               _SegmentedRow(
                 items: const [('prive', 'Privée'), ('famille', 'Famille')],
-                selected: widget.visibility,
-                onSelected: widget.onVisibilityChanged,
+                selected: _visibility,
+                onSelected: (v) {
+                  setState(() => _visibility = v);
+                  widget.onVisibilityChanged(v);
+                },
               ),
               const SizedBox(height: 12),
               // Date
@@ -988,12 +1114,15 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
                 onTap: () async {
                   final picked = await showDatePicker(
                     context: context,
-                    initialDate: widget.dueDate ?? DateTime.now(),
+                    initialDate: _dueDate ?? DateTime.now(),
                     firstDate: DateTime.now().subtract(const Duration(days: 1)),
                     lastDate: DateTime.now().add(const Duration(days: 365)),
                     locale: const Locale('fr', 'FR'),
                   );
-                  if (picked != null) widget.onDueDateChanged(picked);
+                  if (picked != null) {
+                    setState(() => _dueDate = picked);
+                    widget.onDueDateChanged(picked);
+                  }
                 },
                 child: Container(
                   padding: const EdgeInsets.symmetric(
@@ -1014,21 +1143,23 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        widget.dueDate == null
+                        _dueDate == null
                             ? 'Aucune date'
-                            : DateFormat('EEE d MMM', 'fr_FR')
-                                .format(widget.dueDate!),
+                            : DateFormat('EEE d MMM', 'fr_FR').format(_dueDate!),
                         style: TextStyle(
                           fontSize: 14,
-                          color: widget.dueDate == null
+                          color: _dueDate == null
                               ? C.textPlaceholder
                               : C.textPrimary,
                         ),
                       ),
                       const Spacer(),
-                      if (widget.dueDate != null)
+                      if (_dueDate != null)
                         GestureDetector(
-                          onTap: () => widget.onDueDateChanged(null),
+                          onTap: () {
+                            setState(() => _dueDate = null);
+                            widget.onDueDateChanged(null);
+                          },
                           child: const Icon(
                             Icons.close,
                             size: 16,
@@ -1040,13 +1171,12 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
                 ),
               ),
               // Family selector
-              if (widget.visibility == 'famille' &&
-                  widget.families.isNotEmpty) ...[
+              if (_visibility == 'famille' && widget.families.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 _SheetLabel(label: 'Famille'),
                 const SizedBox(height: 6),
                 DropdownButtonFormField<int>(
-                  value: widget.familyId,
+                  value: _familyId,
                   decoration: const InputDecoration(
                     hintText: 'Choisir une famille',
                   ),
@@ -1056,24 +1186,27 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
                       child: Text(f['name'] ?? ''),
                     );
                   }).toList(),
-                  onChanged: (v) => widget.onFamilyChanged(v),
+                  onChanged: (v) => _onFamilyChanged(v),
                 ),
               ],
               // Assign to member
-              if (widget.familyMembers.isNotEmpty) ...[
+              if (_familyMembers.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 _SheetLabel(label: 'Assigner à'),
                 const SizedBox(height: 6),
                 DropdownButtonFormField<int>(
-                  value: widget.assignedToId,
+                  value: _assignedToId,
                   decoration: const InputDecoration(hintText: 'Non assigné'),
-                  items: widget.familyMembers.map((m) {
+                  items: _familyMembers.map((m) {
                     return DropdownMenuItem<int>(
                       value: m['id'],
                       child: Text(m['full_name'] ?? ''),
                     );
                   }).toList(),
-                  onChanged: (v) => widget.onAssignedChanged(v),
+                  onChanged: (v) {
+                    setState(() => _assignedToId = v);
+                    widget.onAssignedChanged(v);
+                  },
                 ),
               ],
               const SizedBox(height: 20),
@@ -1121,6 +1254,18 @@ class _AddEventSheet extends StatefulWidget {
 }
 
 class _AddEventSheetState extends State<_AddEventSheet> {
+  late DateTime _date;
+  TimeOfDay? _time;
+  int? _familyId;
+
+  @override
+  void initState() {
+    super.initState();
+    _date = widget.date;
+    _time = widget.time;
+    _familyId = widget.familyId;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -1176,17 +1321,18 @@ class _AddEventSheetState extends State<_AddEventSheet> {
                 onTap: () async {
                   final picked = await showDatePicker(
                     context: context,
-                    initialDate: widget.date,
+                    initialDate: _date,
                     firstDate: DateTime.now().subtract(const Duration(days: 365)),
                     lastDate: DateTime.now().add(const Duration(days: 730)),
                     locale: const Locale('fr', 'FR'),
                   );
-                  if (picked != null) widget.onDateChanged(picked);
+                  if (picked != null) {
+                    setState(() => _date = picked);
+                    widget.onDateChanged(picked);
+                  }
                 },
                 child: _DateField(
-                  label: DateFormat('EEE d MMMM yyyy', 'fr_FR').format(
-                    widget.date,
-                  ),
+                  label: DateFormat('EEE d MMMM yyyy', 'fr_FR').format(_date),
                 ),
               ),
               const SizedBox(height: 10),
@@ -1196,22 +1342,23 @@ class _AddEventSheetState extends State<_AddEventSheet> {
                 onTap: () async {
                   final picked = await showTimePicker(
                     context: context,
-                    initialTime: widget.time ?? TimeOfDay.now(),
+                    initialTime: _time ?? TimeOfDay.now(),
                   );
+                  setState(() => _time = picked);
                   widget.onTimeChanged(picked);
                 },
                 child: _DateField(
-                  label: widget.time == null
+                  label: _time == null
                       ? 'Toute la journée'
-                      : widget.time!.format(context),
-                  isPlaceholder: widget.time == null,
+                      : _time!.format(context),
+                  isPlaceholder: _time == null,
                 ),
               ),
               const SizedBox(height: 12),
               _SheetLabel(label: 'Famille *'),
               const SizedBox(height: 6),
               DropdownButtonFormField<int>(
-                value: widget.familyId,
+                value: _familyId,
                 decoration: const InputDecoration(hintText: 'Choisir une famille'),
                 items: widget.families.map((f) {
                   return DropdownMenuItem<int>(
@@ -1219,7 +1366,10 @@ class _AddEventSheetState extends State<_AddEventSheet> {
                     child: Text(f['name'] ?? ''),
                   );
                 }).toList(),
-                onChanged: (v) => widget.onFamilyChanged(v),
+                onChanged: (v) {
+                  setState(() => _familyId = v);
+                  widget.onFamilyChanged(v);
+                },
               ),
               const SizedBox(height: 20),
               ElevatedButton(

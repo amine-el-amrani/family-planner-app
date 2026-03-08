@@ -1,10 +1,23 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:provider/provider.dart';
 import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
 import '../../core/api_client.dart';
+import '../../providers/auth_provider.dart';
 import '../../theme/app_theme.dart';
+
+ImageProvider? _buildImageProvider(String? img) {
+  if (img == null) return null;
+  if (img.startsWith('data:')) {
+    try {
+      return MemoryImage(base64Decode(img.split(',')[1]));
+    } catch (_) {}
+  }
+  return NetworkImage(img);
+}
 
 class FamilyDetailsScreen extends StatefulWidget {
   final int familyId;
@@ -24,9 +37,11 @@ class _FamilyDetailsScreenState extends State<FamilyDetailsScreen>
   List<Map<String, dynamic>> _events = [];
   List<Map<String, dynamic>> _notes = [];
   bool _loading = true;
+  int? _currentUserId;
 
   // Invite form
   final _inviteEmailCtrl = TextEditingController();
+  final _inviting = ValueNotifier<bool>(false);
 
   // Edit family
   final _editNameCtrl = TextEditingController();
@@ -40,6 +55,7 @@ class _FamilyDetailsScreenState extends State<FamilyDetailsScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
+    _currentUserId = context.read<AuthProvider>().user?['id'] as int?;
     _loadData();
   }
 
@@ -47,6 +63,7 @@ class _FamilyDetailsScreenState extends State<FamilyDetailsScreen>
   void dispose() {
     _tabController.dispose();
     _inviteEmailCtrl.dispose();
+    _inviting.dispose();
     _editNameCtrl.dispose();
     _editDescCtrl.dispose();
     _noteTitleCtrl.dispose();
@@ -60,7 +77,7 @@ class _FamilyDetailsScreenState extends State<FamilyDetailsScreen>
       final results = await Future.wait([
         _api.dio.get('/families/${widget.familyId}'),
         _api.dio.get('/families/${widget.familyId}/members'),
-        _api.dio.get('/events/', queryParameters: {'family_id': widget.familyId}),
+        _api.dio.get('/events/my-events', queryParameters: {'family_id': widget.familyId}),
         _api.dio.get('/notes/${widget.familyId}'),
       ]);
       setState(() {
@@ -83,11 +100,13 @@ class _FamilyDetailsScreenState extends State<FamilyDetailsScreen>
 
   Future<void> _inviteMember() async {
     if (_inviteEmailCtrl.text.trim().isEmpty) return;
+    _inviting.value = true;
     try {
       await _api.dio.post(
-        '/families/${widget.familyId}/invite',
+        '/families/${widget.familyId}/invite-member',
         queryParameters: {'email': _inviteEmailCtrl.text.trim()},
       );
+      _inviting.value = false;
       if (mounted) Navigator.pop(context);
       _inviteEmailCtrl.clear();
       if (mounted) {
@@ -98,7 +117,21 @@ class _FamilyDetailsScreenState extends State<FamilyDetailsScreen>
           ),
         );
       }
-    } catch (_) {}
+    } catch (e) {
+      _inviting.value = false;
+      if (mounted) {
+        String msg = 'Erreur lors de l\'invitation';
+        if (e is DioException) {
+          final detail = e.response?.data?['detail'];
+          if (detail is String && detail.isNotEmpty) msg = detail;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(msg),
+          backgroundColor: C.destructive,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+    }
   }
 
   Future<void> _editFamily() async {
@@ -120,8 +153,9 @@ class _FamilyDetailsScreenState extends State<FamilyDetailsScreen>
     );
     if (result == null) return;
     try {
+      final bytes = await result.readAsBytes();
       final formData = FormData.fromMap({
-        'file': await MultipartFile.fromFile(result.path, filename: 'family.jpg'),
+        'file': MultipartFile.fromBytes(bytes, filename: 'family.jpg'),
       });
       await _api.dio.post(
         '/families/${widget.familyId}/family-image',
@@ -150,6 +184,30 @@ class _FamilyDetailsScreenState extends State<FamilyDetailsScreen>
       await _api.dio.delete('/notes/$noteId');
       _loadData();
     } catch (_) {}
+  }
+
+  Future<void> _removeMember(int userId) async {
+    try {
+      await _api.dio.post(
+        '/families/${widget.familyId}/remove-member',
+        queryParameters: {'user_id': userId},
+      );
+      _loadData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Membre retiré'),
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Erreur lors du retrait du membre'),
+          backgroundColor: C.destructive,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+    }
   }
 
   void _showInviteSheet() {
@@ -200,9 +258,21 @@ class _FamilyDetailsScreenState extends State<FamilyDetailsScreen>
                 onSubmitted: (_) => _inviteMember(),
               ),
               const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: _inviteMember,
-                child: const Text('Envoyer l\'invitation'),
+              ValueListenableBuilder<bool>(
+                valueListenable: _inviting,
+                builder: (_, loading, __) => ElevatedButton(
+                  onPressed: loading ? null : _inviteMember,
+                  child: loading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('Envoyer l\'invitation'),
+                ),
               ),
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
@@ -279,11 +349,9 @@ class _FamilyDetailsScreenState extends State<FamilyDetailsScreen>
     );
   }
 
-  String? _familyAvatarUrl() {
+  ImageProvider? _familyAvatarImage() {
     final img = _family?['family_image'];
-    if (img == null) return null;
-    if (img.startsWith('http')) return img;
-    return '${_api.dio.options.baseUrl}$img';
+    return _buildImageProvider(img);
   }
 
   @override
@@ -326,23 +394,47 @@ class _FamilyDetailsScreenState extends State<FamilyDetailsScreen>
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: C.primary))
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                _AboutTab(
-                  family: _family!,
-                  avatarUrl: _familyAvatarUrl(),
-                  onPickImage: _pickFamilyImage,
+          : _family == null
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.error_outline, color: C.textTertiary, size: 48),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Impossible de charger la famille',
+                        style: TextStyle(color: C.textSecondary),
+                      ),
+                      const SizedBox(height: 16),
+                      TextButton(
+                        onPressed: _loadData,
+                        child: const Text('Réessayer'),
+                      ),
+                    ],
+                  ),
+                )
+              : TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _AboutTab(
+                      family: _family!,
+                      avatarImage: _familyAvatarImage(),
+                      onPickImage: _pickFamilyImage,
+                    ),
+                    _MembersTab(
+                      members: _members,
+                      currentUserId: _currentUserId,
+                      familyCreatorId: _family!['created_by_id'] as int?,
+                      onRemoveMember: _removeMember,
+                    ),
+                    _EventsTab(events: _events),
+                    _NotesTab(
+                      notes: _notes,
+                      onAdd: _showAddNoteSheet,
+                      onDelete: _deleteNote,
+                    ),
+                  ],
                 ),
-                _MembersTab(members: _members),
-                _EventsTab(events: _events),
-                _NotesTab(
-                  notes: _notes,
-                  onAdd: _showAddNoteSheet,
-                  onDelete: _deleteNote,
-                ),
-              ],
-            ),
     );
   }
 
@@ -423,11 +515,11 @@ class _FamilyDetailsScreenState extends State<FamilyDetailsScreen>
 
 class _AboutTab extends StatelessWidget {
   final Map<String, dynamic> family;
-  final String? avatarUrl;
+  final ImageProvider? avatarImage;
   final VoidCallback onPickImage;
   const _AboutTab({
     required this.family,
-    required this.avatarUrl,
+    required this.avatarImage,
     required this.onPickImage,
   });
 
@@ -444,9 +536,8 @@ class _AboutTab extends StatelessWidget {
                 CircleAvatar(
                   radius: 52,
                   backgroundColor: C.primaryLight,
-                  backgroundImage:
-                      avatarUrl != null ? NetworkImage(avatarUrl!) : null,
-                  child: avatarUrl == null
+                  backgroundImage: avatarImage,
+                  child: avatarImage == null
                       ? const Icon(Icons.group, color: C.primary, size: 40)
                       : null,
                 ),
@@ -496,7 +587,148 @@ class _AboutTab extends StatelessWidget {
 
 class _MembersTab extends StatelessWidget {
   final List<Map<String, dynamic>> members;
-  const _MembersTab({required this.members});
+  final int? currentUserId;
+  final int? familyCreatorId;
+  final ValueChanged<int> onRemoveMember;
+
+  const _MembersTab({
+    required this.members,
+    required this.currentUserId,
+    required this.familyCreatorId,
+    required this.onRemoveMember,
+  });
+
+  void _showMemberModal(BuildContext context, Map<String, dynamic> m) {
+    final bool isCreator = currentUserId == familyCreatorId;
+    final bool isSelf = m['id'] == currentUserId;
+    final bool isThisCreator = m['id'] == familyCreatorId;
+    final avatar = _buildImageProvider(m['profile_image']);
+    final karma = m['karma_total'] as int? ?? 0;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: C.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: C.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            CircleAvatar(
+              radius: 44,
+              backgroundColor: C.primaryLight,
+              backgroundImage: avatar,
+              child: avatar == null
+                  ? Text(
+                      (m['full_name'] as String? ?? '?')
+                          .substring(0, 1)
+                          .toUpperCase(),
+                      style: const TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.w700,
+                        color: C.primary,
+                      ),
+                    )
+                  : null,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              m['full_name'] ?? '',
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: C.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              m['email'] ?? '',
+              style: const TextStyle(fontSize: 14, color: C.textSecondary),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF7ED),
+                borderRadius: BorderRadius.circular(C.radiusBase),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('⚡', style: TextStyle(fontSize: 20)),
+                  const SizedBox(width: 8),
+                  Text(
+                    '$karma pts karma',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFFd97706),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (isCreator && !isSelf && !isThisCreator) ...[
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (d) => AlertDialog(
+                        title: const Text('Retirer le membre'),
+                        content: Text(
+                          'Retirer ${m['full_name']} de la famille ?',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(d, false),
+                            child: const Text('Annuler'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pop(d, true),
+                            style: TextButton.styleFrom(
+                              foregroundColor: C.destructive,
+                            ),
+                            child: const Text('Retirer'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirm == true) onRemoveMember(m['id'] as int);
+                  },
+                  icon: const Icon(Icons.person_remove_outlined,
+                      color: C.destructive),
+                  label: const Text('Retirer de la famille'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: C.destructive,
+                    side: const BorderSide(color: C.destructive),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -514,13 +746,13 @@ class _MembersTab extends StatelessWidget {
       separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
       itemBuilder: (ctx, i) {
         final m = members[i];
+        final karma = m['karma_total'] as int? ?? 0;
         return ListTile(
+          onTap: () => _showMemberModal(context, m),
           contentPadding: const EdgeInsets.symmetric(horizontal: 20),
           leading: CircleAvatar(
             backgroundColor: C.primaryLight,
-            backgroundImage: m['profile_image'] != null
-                ? NetworkImage(m['profile_image'])
-                : null,
+            backgroundImage: _buildImageProvider(m['profile_image']),
             child: m['profile_image'] == null
                 ? Text(
                     (m['full_name'] as String? ?? '?')
@@ -543,6 +775,23 @@ class _MembersTab extends StatelessWidget {
           subtitle: Text(
             m['email'] ?? '',
             style: const TextStyle(fontSize: 13, color: C.textSecondary),
+          ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('⚡', style: TextStyle(fontSize: 13)),
+              const SizedBox(width: 2),
+              Text(
+                '$karma',
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: C.textSecondary,
+                ),
+              ),
+              const SizedBox(width: 4),
+              const Icon(Icons.chevron_right, color: C.textTertiary, size: 18),
+            ],
           ),
         );
       },
