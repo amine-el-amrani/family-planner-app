@@ -23,11 +23,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _editing = false;
   bool _saving = false;
   bool _pushLoading = false;
+  bool? _pushEnabled; // null = not checked yet
 
   @override
   void initState() {
     super.initState();
     _fetchProfile();
+    _checkPushStatus();
+  }
+
+  Future<void> _checkPushStatus() async {
+    try {
+      final res = await _api.dio.get('/users/me/push-status');
+      if (mounted) setState(() => _pushEnabled = res.data['has_subscription'] == true);
+    } catch (_) {}
   }
 
   @override
@@ -120,30 +129,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _enablePush() async {
     setState(() => _pushLoading = true);
+    String msg;
+    Color? color;
     try {
       await PushService.initialize();
-      await PushService.subscribeAndRegister();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Notifications push activées !'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+      final success = await PushService.subscribeAndRegister();
+      if (success) {
+        msg = 'Notifications push activées ! Vous pouvez fermer l\'app.';
+        color = null;
+        if (mounted) setState(() => _pushEnabled = true);
+      } else {
+        msg = 'Permission refusée. Allez dans les réglages du navigateur → Notifications → Autoriser ce site.';
+        color = C.destructive;
       }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Impossible d\'activer les notifications. Vérifiez les permissions dans les réglages du navigateur.'),
-            backgroundColor: C.destructive,
-            behavior: SnackBarBehavior.floating,
-            duration: Duration(seconds: 5),
-          ),
-        );
-      }
+    } catch (e) {
+      msg = 'Erreur : $e';
+      color = C.destructive;
     }
-    if (mounted) setState(() => _pushLoading = false);
+    if (mounted) {
+      setState(() => _pushLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(msg),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 6),
+      ));
+    }
   }
 
   ImageProvider? _avatarImage() {
@@ -258,7 +269,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         border: Border.all(color: C.borderLight),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.04),
+                            color: Colors.black.withValues(alpha: 0.04),
                             blurRadius: 8,
                           ),
                         ],
@@ -487,20 +498,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const SizedBox(height: 12),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: OutlinedButton.icon(
-                        onPressed: _pushLoading ? null : _enablePush,
-                        icon: _pushLoading
-                            ? const SizedBox(
-                                width: 18, height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: C.primary),
-                              )
-                            : const Icon(Icons.notifications_outlined, color: C.primary),
-                        label: const Text('Activer les notifications push'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: C.primary,
-                          side: const BorderSide(color: C.primary),
-                          minimumSize: const Size.fromHeight(48),
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (_pushEnabled == true)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFECFDF5),
+                                borderRadius: BorderRadius.circular(C.radiusSm),
+                                border: Border.all(color: const Color(0xFF6EE7B7)),
+                              ),
+                              child: const Row(
+                                children: [
+                                  Icon(Icons.check_circle, color: Color(0xFF059669), size: 16),
+                                  SizedBox(width: 8),
+                                  Text('Notifications push actives', style: TextStyle(color: Color(0xFF059669), fontSize: 13, fontWeight: FontWeight.w600)),
+                                ],
+                              ),
+                            ),
+                          if (_pushEnabled == true) const SizedBox(height: 8),
+                          OutlinedButton.icon(
+                            onPressed: _pushLoading ? null : _enablePush,
+                            icon: _pushLoading
+                                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: C.primary))
+                                : Icon(_pushEnabled == true ? Icons.refresh : Icons.notifications_outlined, color: C.primary),
+                            label: Text(_pushEnabled == true ? 'Renouveler l\'abonnement push' : 'Activer les notifications push'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: C.primary,
+                              side: const BorderSide(color: C.primary),
+                              minimumSize: const Size.fromHeight(48),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
 

@@ -19,20 +19,23 @@ class PushService {
   }
 
   /// Request permission, subscribe, and send subscription to backend.
-  static Future<void> subscribeAndRegister() async {
-    try {
-      final res = await _api.dio.get('/users/push/vapid-key');
-      final vapidKey = (res.data['public_key'] as String?) ?? '';
-      if (vapidKey.isEmpty) return;
+  /// Returns true if subscription was successfully saved.
+  static Future<bool> subscribeAndRegister() async {
+    final res = await _api.dio.get('/users/push/vapid-key');
+    final vapidKey = (res.data['public_key'] as String?) ?? '';
+    if (vapidKey.isEmpty) throw Exception('VAPID key not configured on server');
 
-      final jsResult = await _subscribeToPush(vapidKey.toJS).toDart;
-      final subJson = jsResult?.dartify()?.toString();
-      if (subJson != null && subJson.startsWith('{')) {
-        await _api.dio.post(
-          '/users/me/push-subscription',
-          data: {'subscription': subJson},
-        );
-      }
-    } catch (_) {}
+    final jsResult = await _subscribeToPush(vapidKey.toJS).toDart;
+    final subJson = jsResult?.dartify()?.toString();
+    if (subJson == null || !subJson.startsWith('{')) {
+      // null = permission denied or SW not ready
+      return false;
+    }
+
+    await _api.dio.post(
+      '/users/me/push-subscription',
+      data: {'subscription': subJson},
+    );
+    return true;
   }
 }

@@ -105,7 +105,7 @@ class _ShoppingScreenState extends State<ShoppingScreen> {
     }
   }
 
-  Future<void> _addItem(String title, int qty) async {
+  Future<void> _addItem(String title, int qty, {String? imageUrl}) async {
     if (title.trim().isEmpty || _selectedListId == null) return;
     // Optimistic update — show item instantly before API confirms
     final tempId = -DateTime.now().millisecondsSinceEpoch;
@@ -113,12 +113,14 @@ class _ShoppingScreenState extends State<ShoppingScreen> {
           'id': tempId,
           'title': title.trim(),
           'quantity': qty.toString(),
+          'image_url': imageUrl,
           'is_checked': false,
         }));
     try {
       await _api.dio.post('/shopping/lists/$_selectedListId/items', data: {
         'title': title.trim(),
         'quantity': qty.toString(),
+        if (imageUrl != null && imageUrl.isNotEmpty) 'image_url': imageUrl,
       });
       _loadItems(_selectedListId!); // replace temp with real server data
     } catch (e) {
@@ -399,7 +401,7 @@ class _ShoppingScreenState extends State<ShoppingScreen> {
 // ─── Product picker sheet ──────────────────────────────────────────────────────
 
 class _ProductPickerSheet extends StatefulWidget {
-  final Future<void> Function(String title, int qty) onAdd;
+  final Future<void> Function(String title, int qty, {String? imageUrl}) onAdd;
   const _ProductPickerSheet({required this.onAdd});
 
   @override
@@ -426,6 +428,7 @@ class _ProductPickerSheetState extends State<_ProductPickerSheet> {
   int _qty = 1;
   String _query = '';
   String? _selected;
+  String? _selectedImage;
   List<Map<String, dynamic>> _apiResults = [];
   bool _apiLoading = false;
   Timer? _debounce;
@@ -470,9 +473,10 @@ class _ProductPickerSheetState extends State<_ProductPickerSheet> {
     return _commonProducts.where((p) => p.$2.toLowerCase().contains(q)).toList();
   }
 
-  void _selectProduct(String name) {
+  void _selectProduct(String name, {String? imageUrl}) {
     setState(() {
       _selected = name;
+      _selectedImage = imageUrl;
       _customCtrl.clear();
     });
   }
@@ -482,8 +486,9 @@ class _ProductPickerSheetState extends State<_ProductPickerSheet> {
         ? _customCtrl.text.trim()
         : _selected ?? '';
     if (title.isEmpty) return;
+    final image = _customCtrl.text.trim().isNotEmpty ? null : _selectedImage;
     Navigator.of(context).pop();
-    widget.onAdd(title, _qty);
+    widget.onAdd(title, _qty, imageUrl: image);
   }
 
   @override
@@ -607,7 +612,10 @@ class _ProductPickerSheetState extends State<_ProductPickerSheet> {
                                     ? const Icon(Icons.check_circle, color: C.primary, size: 20)
                                     : null,
                                 tileColor: isSelected ? C.primaryLight : null,
-                                onTap: () => _selectProduct(p['name']),
+                                onTap: () => _selectProduct(
+                                  p['name'],
+                                  imageUrl: (p['image'] as String?)?.isNotEmpty == true ? p['image'] : null,
+                                ),
                               );
                             },
                           )
@@ -629,7 +637,7 @@ class _ProductPickerSheetState extends State<_ProductPickerSheet> {
                           final (emoji, name) = _filteredCommon[i];
                           final isSelected = _selected == name && _customCtrl.text.trim().isEmpty;
                           return GestureDetector(
-                            onTap: () => _selectProduct(name),
+                            onTap: () => _selectProduct(name, imageUrl: null),
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 150),
                               decoration: BoxDecoration(
@@ -735,7 +743,7 @@ class _ListDetailView extends StatelessWidget {
   final List<Map<String, dynamic>> items;
   final bool loading;
   final VoidCallback onBack;
-  final Future<void> Function(String title, int qty) onAddItem;
+  final Future<void> Function(String title, int qty, {String? imageUrl}) onAddItem;
   final ValueChanged<Map<String, dynamic>> onToggleItem;
   final ValueChanged<int> onDeleteItem;
   final VoidCallback onRefresh;
@@ -927,6 +935,9 @@ class _ShoppingItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isChecked = item['is_checked'] ?? false;
+    final imageUrl = item['image_url'] as String?;
+    final hasImage = imageUrl != null && imageUrl.isNotEmpty;
+
     return Dismissible(
       key: Key('item_${item['id']}'),
       direction: DismissDirection.endToStart,
@@ -939,24 +950,56 @@ class _ShoppingItem extends StatelessWidget {
       ),
       child: ListTile(
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         leading: GestureDetector(
           onTap: onToggle,
-          child: Container(
-            width: 24,
-            height: 24,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isChecked ? C.green : Colors.transparent,
-              border: Border.all(
-                color: isChecked ? C.green : C.border,
-                width: 2,
-              ),
-            ),
-            child: isChecked
-                ? const Icon(Icons.check, color: Colors.white, size: 14)
-                : null,
-          ),
+          child: hasImage
+              ? Stack(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.network(
+                        imageUrl,
+                        width: 44,
+                        height: 44,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                            width: 44, height: 44,
+                            decoration: BoxDecoration(
+                              color: C.surfaceAlt,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.shopping_basket_outlined, size: 20, color: C.textTertiary),
+                          ),
+                      ),
+                    ),
+                    if (isChecked)
+                      Positioned.fill(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: C.green.withValues(alpha: 0.7),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(Icons.check, color: Colors.white, size: 20),
+                        ),
+                      ),
+                  ],
+                )
+              : Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isChecked ? C.green : Colors.transparent,
+                    border: Border.all(
+                      color: isChecked ? C.green : C.border,
+                      width: 2,
+                    ),
+                  ),
+                  child: isChecked
+                      ? const Icon(Icons.check, color: Colors.white, size: 18)
+                      : null,
+                ),
         ),
         title: Text(
           item['title'] ?? '',

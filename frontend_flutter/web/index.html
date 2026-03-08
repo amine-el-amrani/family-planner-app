@@ -67,11 +67,19 @@
         if (!ok || !_pushReg) return null;
         return Notification.requestPermission().then(function (perm) {
           if (perm !== 'granted') return null;
-          return _pushReg.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: _b64ToUint8(vapidPublicKey),
-          }).then(function (s) { return JSON.stringify(s); })
-            .catch(function (e) { console.warn('Subscribe failed:', e); return null; });
+          // Always unsubscribe from the existing subscription first.
+          // Required when the VAPID key changed — otherwise subscribe()
+          // throws and the browser reports "Permission denied".
+          return _pushReg.pushManager.getSubscription().then(function (existing) {
+            var unsub = existing ? existing.unsubscribe() : Promise.resolve(true);
+            return unsub.then(function () {
+              return _pushReg.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: _b64ToUint8(vapidPublicKey),
+              }).then(function (s) { return JSON.stringify(s); })
+                .catch(function (e) { console.warn('Push subscribe failed:', e); return null; });
+            });
+          });
         });
       });
     };
