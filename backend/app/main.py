@@ -50,12 +50,12 @@ async def lifespan(app: FastAPI):
     _wait_for_db()
 
     # VAPID env var diagnostic — helps verify Railway has the vars loaded
-    _vapid_pem = _os.environ.get("VAPID_PRIVATE_PEM", "")
+    _vapid_key = _os.environ.get("VAPID_PRIVATE_KEY", "")
     _vapid_pub = _os.environ.get("VAPID_PUBLIC_KEY", "")
     logger.info(
         f"Startup VAPID check: "
-        f"PEM={'SET(' + str(len(_vapid_pem)) + ' chars)' if _vapid_pem else 'MISSING'}, "
-        f"PUB={'SET(' + str(len(_vapid_pub)) + ' chars)' if _vapid_pub else 'MISSING'}"
+        f"PRIVATE_KEY={'SET(' + str(len(_vapid_key)) + ' chars)' if _vapid_key else 'MISSING'}, "
+        f"PUBLIC_KEY={'SET(' + str(len(_vapid_pub)) + ' chars)' if _vapid_pub else 'MISSING'}"
     )
 
     # Daily reminder at 08:00 every day

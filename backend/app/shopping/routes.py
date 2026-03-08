@@ -222,9 +222,14 @@ def search_products(
             )
             if not name:
                 continue
+            brands_raw = p.get("brands") or ""
+            if isinstance(brands_raw, list):
+                brand = brands_raw[0].strip() if brands_raw else ""
+            else:
+                brand = brands_raw.split(",")[0].strip()
             results.append({
                 "name": name,
-                "brand": ((p.get("brands") or "").split(",")[0]).strip(),
+                "brand": brand,
                 "image": p.get("image_small_url") or "",
             })
         logger.info(f"Product search '{q}': {len(results)} results (total={data.get('total', {}).get('value', '?')})")
