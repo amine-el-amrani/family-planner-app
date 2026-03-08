@@ -5,9 +5,12 @@ Supports two formats stored in user.push_token:
   - "ExponentPushToken[xxx]"  → Expo (legacy React Native)
   - '{"endpoint":...}'        → Web Push / VAPID (Flutter PWA)
 
-VAPID keys are loaded from env vars VAPID_PRIVATE_PEM + VAPID_PUBLIC_KEY,
-or auto-generated and saved to vapid_keys.json on first run (development).
-After first run, copy the printed keys to environment variables for production.
+VAPID keys are loaded from env vars:
+  VAPID_PRIVATE_KEY  — base64url-encoded raw 32-byte EC private key (recommended)
+  VAPID_PUBLIC_KEY   — base64url-encoded uncompressed public key (65 bytes, starts with 04)
+
+Or auto-generated and saved to vapid_keys.json on first run (development only).
+After first run, copy the printed VAPID_PRIVATE_KEY + VAPID_PUBLIC_KEY to Railway Variables.
 """
 import json
 import os
@@ -28,43 +31,55 @@ def _get_keys() -> dict:
     if _keys_cache:
         return _keys_cache
 
-    # 1. Prefer environment variables (production)
-    env_pem = os.environ.get("VAPID_PRIVATE_PEM")
-    env_pub = os.environ.get("VAPID_PUBLIC_KEY")
-    if env_pem and env_pub:
-        # Railway stores the value with literal \n — restore real newlines
-        env_pem = env_pem.replace('\\n', '\n')
-        _keys_cache = {"private_pem": env_pem, "public_b64": env_pub}
+    env_pub = os.environ.get("VAPID_PUBLIC_KEY", "").strip()
+
+    # 1. Preferred format: VAPID_PRIVATE_KEY = base64url raw key (single line, no headers)
+    env_key = os.environ.get("VAPID_PRIVATE_KEY", "").strip()
+    if env_key and env_pub:
+        _keys_cache = {"private_key": env_key, "public_b64": env_pub}
         return _keys_cache
 
-    # 2. Load from file (development)
+    # 2. Legacy: VAPID_PRIVATE_PEM (multiline PEM — kept for backward compat)
+    env_pem = os.environ.get("VAPID_PRIVATE_PEM", "")
+    if env_pem and env_pub:
+        # Convert any escaped \n back to real newlines (Railway may escape them)
+        env_pem = env_pem.replace('\\n', '\n').strip()
+        _keys_cache = {"private_key": env_pem, "public_b64": env_pub}
+        return _keys_cache
+
+    # 3. Load from file (development)
     if os.path.exists(_KEYS_FILE):
         with open(_KEYS_FILE) as f:
             _keys_cache = json.load(f)
         return _keys_cache
 
-    # 3. Generate new P-256 key pair (first run)
+    # 4. Generate new P-256 key pair (first run — development only)
     try:
-        from cryptography.hazmat.primitives.asymmetric import ec
-        from cryptography.hazmat.primitives.serialization import (
-            Encoding, PrivateFormat, NoEncryption,
-        )
-
-        private_key = ec.generate_private_key(ec.SECP256R1())
-        private_pem = private_key.private_bytes(
-            Encoding.PEM, PrivateFormat.TraditionalOpenSSL, NoEncryption()
-        ).decode()
-
         import base64
-        pub = private_key.public_key().public_numbers()
-        pub_bytes = b'\x04' + pub.x.to_bytes(32, 'big') + pub.y.to_bytes(32, 'big')
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.backends import default_backend
+
+        private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
+
+        # Private key: raw 32-byte scalar → base64url (what py_vapid from_raw() expects)
+        d = private_key.private_numbers().private_value
+        priv_b64 = base64.urlsafe_b64encode(d.to_bytes(32, 'big')).decode().rstrip('=')
+
+        # Public key: uncompressed 65 bytes (04 || x || y) → base64url
+        pub_nums = private_key.public_key().public_numbers()
+        pub_bytes = b'\x04' + pub_nums.x.to_bytes(32, 'big') + pub_nums.y.to_bytes(32, 'big')
         pub_b64 = base64.urlsafe_b64encode(pub_bytes).decode().rstrip('=')
 
-        _keys_cache = {"private_pem": private_pem, "public_b64": pub_b64}
-        os.makedirs(os.path.dirname(_KEYS_FILE), exist_ok=True)
+        _keys_cache = {"private_key": priv_b64, "public_b64": pub_b64}
+        os.makedirs(os.path.dirname(_KEYS_FILE) or ".", exist_ok=True)
         with open(_KEYS_FILE, 'w') as f:
             json.dump(_keys_cache, f)
 
+        print(f"\n{'='*60}")
+        print("VAPID keys generated! Set these in Railway Variables:")
+        print(f"VAPID_PRIVATE_KEY={priv_b64}")
+        print(f"VAPID_PUBLIC_KEY={pub_b64}")
+        print('=' * 60 + '\n')
         return _keys_cache
 
     except Exception as e:
@@ -102,13 +117,14 @@ def _send_webpush(subscription_json: str, title: str, body: str, url: str = "/")
     try:
         from pywebpush import webpush, WebPushException
         keys = _get_keys()
-        if not keys.get("private_pem"):
+        private_key = keys.get("private_key")
+        if not private_key:
             return
         sub = json.loads(subscription_json)
         webpush(
             subscription_info=sub,
             data=json.dumps({"title": title, "body": body, "url": url}),
-            vapid_private_key=keys["private_pem"],
+            vapid_private_key=private_key,
             vapid_claims={"sub": "mailto:admin@familyplanner.app"},
         )
     except Exception as e:

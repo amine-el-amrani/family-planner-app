@@ -199,26 +199,26 @@ def search_products(
     if len(q) < 2:
         return []
     try:
+        # search.openfoodfacts.org is the Elasticsearch-based API — much faster than world.OFF
         resp = _requests.get(
-            "https://world.openfoodfacts.org/api/v2/search",
+            "https://search.openfoodfacts.org/search",
             params={
-                "search_terms": q,
-                "fields": "product_name,product_name_fr,generic_name,image_small_url,brands",
-                "page_size": "20",
-                "page": "1",
+                "q": q,
+                "fields": "product_name,product_name_fr,image_small_url,brands",
+                "page_size": 15,
+                "page": 1,
             },
             headers={"User-Agent": "FamilyPlannerApp/1.0 (https://family-planner-sage.vercel.app)"},
-            timeout=10,
+            timeout=8,
         )
         resp.raise_for_status()
         data = resp.json()
 
         results = []
-        for p in data.get("products", []):
+        for p in data.get("hits", []):
             name = (
                 (p.get("product_name_fr") or "").strip()
                 or (p.get("product_name") or "").strip()
-                or (p.get("generic_name") or "").strip()
             )
             if not name:
                 continue
@@ -227,7 +227,7 @@ def search_products(
                 "brand": ((p.get("brands") or "").split(",")[0]).strip(),
                 "image": p.get("image_small_url") or "",
             })
-        logger.info(f"Product search '{q}': {len(results)} results (total={data.get('count', '?')})")
+        logger.info(f"Product search '{q}': {len(results)} results (total={data.get('total', {}).get('value', '?')})")
         return results
     except Exception as e:
         logger.error(f"Product search '{q}' failed: {e}")
