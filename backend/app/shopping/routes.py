@@ -1,8 +1,12 @@
 import json
+import logging
+import ssl
 import urllib.request
 import urllib.parse
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -194,26 +198,34 @@ def search_products(
     current_user: User = Depends(get_current_user),
 ):
     """Search products via Open Food Facts (server-side proxy to avoid CORS)."""
-    if len(q.strip()) < 2:
+    q = q.strip()
+    if len(q) < 2:
         return []
     try:
         url = (
-            "https://world.openfoodfacts.org/cgi/search.pl?"
+            "https://world.openfoodfacts.org/api/v2/search?"
             + urllib.parse.urlencode({
-                "search_terms": q.strip(),
-                "search_simple": "1",
-                "action": "process",
-                "json": "1",
+                "search_terms": q,
+                "fields": "product_name,product_name_fr,generic_name,image_small_url,brands",
                 "page_size": "20",
-                "fields": "product_name,image_small_url,brands",
+                "page": "1",
             })
         )
-        req = urllib.request.Request(url, headers={"User-Agent": "FamilyPlannerApp/1.0"})
-        with urllib.request.urlopen(req, timeout=8) as resp:
+        ctx = ssl.create_default_context()
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "FamilyPlannerApp/1.0 (https://family-planner-sage.vercel.app)"
+        })
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
             data = json.loads(resp.read())
+
         results = []
         for p in data.get("products", []):
-            name = (p.get("product_name") or "").strip()
+            # Try multiple name fields
+            name = (
+                (p.get("product_name_fr") or "").strip()
+                or (p.get("product_name") or "").strip()
+                or (p.get("generic_name") or "").strip()
+            )
             if not name:
                 continue
             results.append({
@@ -221,8 +233,10 @@ def search_products(
                 "brand": ((p.get("brands") or "").split(",")[0]).strip(),
                 "image": p.get("image_small_url") or "",
             })
+        logger.info(f"Product search '{q}': {len(results)} results (total={data.get('count', '?')})")
         return results
-    except Exception:
+    except Exception as e:
+        logger.error(f"Product search '{q}' failed: {e}")
         return []
 
 
