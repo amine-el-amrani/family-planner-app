@@ -215,7 +215,25 @@ def reject_invitation(
     if not invitation:
         raise HTTPException(status_code=404, detail="Invitation not found")
     invitation.status = InvitationStatus.REJECTED
+
+    # Notify the person who sent the invitation
+    inviter_push = None
+    inviter = db.query(User).filter(User.id == invitation.invited_by_id).first()
+    if inviter:
+        msg = f"{current_user.full_name} a refusé votre invitation dans la famille '{invitation.family.name}'"
+        db.add(Notification(
+            message=msg,
+            user_id=inviter.id,
+            created_by_id=current_user.id,
+            related_entity_type="family",
+            related_entity_id=invitation.family_id,
+        ))
+        if inviter.push_token:
+            inviter_push = (inviter.push_token, msg)
+
     db.commit()
+    if inviter_push:
+        send_push(inviter_push[0], "Invitation refusée", inviter_push[1])
     return {"message": "Invitation rejected"}
 
 @router.post("/{family_id}/leave")

@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
+from app.notifications.push import send_push
 
 logger = logging.getLogger(__name__)
 from sqlalchemy.orm import Session
@@ -147,6 +148,19 @@ def add_item(
     db.add(item)
     db.commit()
     db.refresh(item)
+
+    # Push notification to all other family members (no DB record to avoid noise)
+    try:
+        for member in lst.family.members:
+            if member.id != current_user.id and member.push_token:
+                send_push(
+                    member.push_token,
+                    f"Courses · {lst.name}",
+                    f"{current_user.full_name} a ajouté '{data.title}'",
+                )
+    except Exception:
+        pass
+
     return _item_to_dict(item)
 
 
