@@ -17,6 +17,7 @@ class _InvitationsScreenState extends State<InvitationsScreen>
   List<Map<String, dynamic>> _received = [];
   List<Map<String, dynamic>> _sent = [];
   bool _loading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -32,7 +33,7 @@ class _InvitationsScreenState extends State<InvitationsScreen>
   }
 
   Future<void> _loadData() async {
-    setState(() => _loading = true);
+    setState(() { _loading = true; _error = null; });
     try {
       final results = await Future.wait([
         _api.dio.get('/families/my-invitations'),
@@ -47,8 +48,8 @@ class _InvitationsScreenState extends State<InvitationsScreen>
         );
         _loading = false;
       });
-    } catch (_) {
-      setState(() => _loading = false);
+    } catch (e) {
+      setState(() { _loading = false; _error = e.toString(); });
     }
   }
 
@@ -88,7 +89,31 @@ class _InvitationsScreenState extends State<InvitationsScreen>
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: C.primary))
-          : TabBarView(
+          : _error != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.wifi_off_outlined,
+                            size: 48, color: C.textTertiary),
+                        const SizedBox(height: 12),
+                        const Text('Impossible de charger les invitations',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                                fontSize: 15, color: C.textSecondary)),
+                        const SizedBox(height: 16),
+                        ElevatedButton.icon(
+                          onPressed: _loadData,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Réessayer'),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : TabBarView(
               controller: _tabController,
               children: [
                 // Received invitations

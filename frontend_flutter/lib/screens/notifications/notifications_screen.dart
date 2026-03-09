@@ -51,9 +51,21 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     if (mounted) {
       switch (entityType) {
         case 'family':
-          if (entityId != null) context.push('/families/$entityId');
+          if (entityId != null) {
+            context.push('/families/$entityId');
+          }
         case 'invitation':
           context.push('/invitations');
+        case 'task':
+          // Navigate to home screen where tasks are displayed
+          context.go('/home');
+        case 'event':
+          // Navigate to agenda screen where events are displayed
+          context.go('/agenda');
+        case 'shopping':
+        case 'shopping_list':
+          // Navigate to shopping screen
+          context.go('/shopping');
         default:
           break;
       }

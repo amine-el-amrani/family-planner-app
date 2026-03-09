@@ -103,32 +103,60 @@ class _AgendaScreenState extends State<AgendaScreen> {
     }
   }
 
+  Future<void> _handleRsvp(int eventId, String status) async {
+    try {
+      await _api.dio.patch('/events/$eventId/rsvp', data: {'status': status});
+      await _loadDayData(_selectedDay);
+    } catch (_) {}
+  }
+
   Future<void> _toggleTask(Map<String, dynamic> task) async {
     final newStatus = task['status'] == 'fait' ? 'en_attente' : 'fait';
+    // Optimistic update — flip immediately
+    final idx = _dayTasks.indexWhere((t) => t['id'] == task['id']);
+    if (idx != -1) {
+      final updated = Map<String, dynamic>.from(task);
+      updated['status'] = newStatus;
+      setState(() => _dayTasks[idx] = updated);
+    }
     try {
       await _api.dio.patch('/tasks/${task['id']}', data: {'status': newStatus});
-      _loadDayData(_selectedDay);
-    } catch (_) {}
+    } catch (_) {
+      // Revert on failure
+      if (idx != -1 && mounted) setState(() => _dayTasks[idx] = task);
+    }
   }
 
   Future<void> _deleteTask(int id) async {
     final confirmed = await _confirmDelete('Supprimer cette tâche ?');
     if (!confirmed) return;
+    // Optimistic removal
+    final taskIdx = _dayTasks.indexWhere((t) => t['id'] == id);
+    final taskData = taskIdx != -1 ? Map<String, dynamic>.from(_dayTasks[taskIdx]) : null;
+    if (taskIdx != -1) setState(() => _dayTasks.removeAt(taskIdx));
     try {
       await _api.dio.delete('/tasks/$id');
-      _loadDayData(_selectedDay);
-      _loadMonthData(_focusedDay);
-    } catch (_) {}
+      _loadMonthData(_focusedDay); // refresh markers in background
+    } catch (_) {
+      // Revert on failure
+      if (taskData != null && mounted) setState(() => _dayTasks.insert(taskIdx, taskData));
+    }
   }
 
   Future<void> _deleteEvent(int id) async {
     final confirmed = await _confirmDelete('Supprimer cet événement ?');
     if (!confirmed) return;
+    // Optimistic removal
+    final eventIdx = _dayEvents.indexWhere((e) => e['id'] == id);
+    final eventData = eventIdx != -1 ? Map<String, dynamic>.from(_dayEvents[eventIdx]) : null;
+    if (eventIdx != -1) setState(() => _dayEvents.removeAt(eventIdx));
     try {
       await _api.dio.delete('/events/$id');
-      _loadDayData(_selectedDay);
-      _loadMonthData(_focusedDay);
-    } catch (_) {}
+      _loadMonthData(_focusedDay); // refresh markers in background
+    } catch (_) {
+      // Revert on failure
+      if (eventData != null && mounted) setState(() => _dayEvents.insert(eventIdx, eventData));
+    }
   }
 
   Future<bool> _confirmDelete(String message) async {
@@ -168,6 +196,15 @@ class _AgendaScreenState extends State<AgendaScreen> {
           }
         },
       ),
+    );
+  }
+
+  void _showEventDetail(Map<String, dynamic> event) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _EventDetailSheet(event: event),
     );
   }
 
@@ -225,6 +262,11 @@ class _AgendaScreenState extends State<AgendaScreen> {
               focusedDay: _focusedDay,
               selectedDayPredicate: (d) => isSameDay(d, _selectedDay),
               calendarFormat: _calendarFormat,
+              availableCalendarFormats: const {
+                CalendarFormat.month: 'Mois',
+                CalendarFormat.twoWeeks: '2 semaines',
+                CalendarFormat.week: 'Semaine',
+              },
               startingDayOfWeek: StartingDayOfWeek.monday,
               locale: 'fr_FR',
               eventLoader: _getMarkersForDay,
@@ -322,9 +364,12 @@ class _AgendaScreenState extends State<AgendaScreen> {
                                     event: e,
                                     isCreator:
                                         e['created_by_id'] == _currentUserId,
+                                    currentUserId: _currentUserId,
                                     onDelete: () =>
                                         _deleteEvent(e['id'] as int),
                                     onEdit: () => _showEditEvent(e),
+                                    onRsvp: _handleRsvp,
+                                    onTap: () => _showEventDetail(e),
                                   )),
                             ],
                             if (_dayTasks.isNotEmpty) ...[
@@ -374,21 +419,64 @@ class _DaySection extends StatelessWidget {
 
 // ─── Event item ───────────────────────────────────────────────────────────────
 
-class _EventItem extends StatelessWidget {
+class _EventItem extends StatefulWidget {
   final Map<String, dynamic> event;
   final bool isCreator;
+  final int? currentUserId;
   final VoidCallback onDelete;
   final VoidCallback onEdit;
+  final Future<void> Function(int eventId, String status) onRsvp;
+  final VoidCallback onTap;
+
   const _EventItem({
     required this.event,
     required this.isCreator,
+    required this.currentUserId,
     required this.onDelete,
     required this.onEdit,
+    required this.onRsvp,
+    required this.onTap,
   });
 
   @override
+  State<_EventItem> createState() => _EventItemState();
+}
+
+class _EventItemState extends State<_EventItem> {
+  bool _rsvpLoading = false;
+
+  String? get _myStatus {
+    final attendees = widget.event['attendees'] as List? ?? [];
+    for (final a in attendees) {
+      final map = a as Map;
+      if (map['user_id'] == widget.currentUserId) {
+        return map['status'] as String?;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _setRsvp(String status) async {
+    if (_rsvpLoading) return;
+    setState(() => _rsvpLoading = true);
+    try {
+      await widget.onRsvp(widget.event['id'] as int, status);
+    } finally {
+      if (mounted) setState(() => _rsvpLoading = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Container(
+    final goingCount = widget.event['going_count'] as int? ?? 0;
+    final notGoingCount = widget.event['not_going_count'] as int? ?? 0;
+    final pendingCount = widget.event['pending_count'] as int? ?? 0;
+    final hasAttendees = (goingCount + notGoingCount + pendingCount) > 0;
+    final myStatus = _myStatus;
+
+    return GestureDetector(
+      onTap: widget.onTap,
+      child: Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
       decoration: BoxDecoration(
         color: C.surface,
@@ -396,68 +484,205 @@ class _EventItem extends StatelessWidget {
         border: const Border(left: BorderSide(color: C.blue, width: 3)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 4,
           ),
         ],
       ),
-      child: ListTile(
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        leading: Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            color: C.blueLight,
-            borderRadius: BorderRadius.circular(C.radiusSm),
-          ),
-          child: const Icon(Icons.event, color: C.blue, size: 18),
-        ),
-        title: Text(
-          event['title'] ?? '',
-          style: const TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w500,
-            color: C.textPrimary,
-          ),
-        ),
-        subtitle: Column(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (event['time_from'] != null)
-              Text(
-                event['time_from'],
-                style: const TextStyle(fontSize: 12, color: C.textSecondary),
+            // Title row
+            Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: C.blueLight,
+                    borderRadius: BorderRadius.circular(C.radiusSm),
+                  ),
+                  child: const Icon(Icons.event, color: C.blue, size: 18),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.event['title'] ?? '',
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w500,
+                          color: C.textPrimary,
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          if (widget.event['time_from'] != null) ...[
+                            Text(
+                              widget.event['time_from'],
+                              style: const TextStyle(fontSize: 12, color: C.textSecondary),
+                            ),
+                            const Text(' · ', style: TextStyle(fontSize: 12, color: C.textTertiary)),
+                          ],
+                          if (widget.event['family_name'] != null)
+                            Text(
+                              widget.event['family_name'],
+                              style: const TextStyle(fontSize: 12, color: C.textSecondary),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                if (widget.isCreator)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.edit_outlined, color: C.textSecondary, size: 19),
+                        onPressed: widget.onEdit,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                      const SizedBox(width: 4),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, color: C.textTertiary, size: 19),
+                        onPressed: widget.onDelete,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+
+            // RSVP section — only shown when there are attendees
+            if (hasAttendees) ...[
+              const SizedBox(height: 8),
+              // Attendance counts
+              Row(
+                children: [
+                  if (goingCount > 0) ...[
+                    const Icon(Icons.check_circle_outline, size: 13, color: Color(0xFF22c55e)),
+                    const SizedBox(width: 3),
+                    Text(
+                      '$goingCount',
+                      style: const TextStyle(fontSize: 12, color: Color(0xFF22c55e), fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  if (notGoingCount > 0) ...[
+                    const Icon(Icons.cancel_outlined, size: 13, color: C.destructive),
+                    const SizedBox(width: 3),
+                    Text(
+                      '$notGoingCount',
+                      style: const TextStyle(fontSize: 12, color: C.destructive, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  if (pendingCount > 0) ...[
+                    const Icon(Icons.schedule, size: 13, color: C.textTertiary),
+                    const SizedBox(width: 3),
+                    Text(
+                      '$pendingCount en attente',
+                      style: const TextStyle(fontSize: 12, color: C.textTertiary),
+                    ),
+                  ],
+                ],
               ),
-            if (event['family_name'] != null)
-              Text(
-                event['family_name'],
-                style: const TextStyle(fontSize: 12, color: C.textSecondary),
-              ),
+              const SizedBox(height: 8),
+              // RSVP action buttons
+              if (_rsvpLoading)
+                const SizedBox(
+                  height: 28,
+                  child: Center(
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: C.primary),
+                    ),
+                  ),
+                )
+              else
+                Row(
+                  children: [
+                    _RsvpButton(
+                      label: 'Je serai là',
+                      icon: Icons.check,
+                      isSelected: myStatus == 'going',
+                      activeColor: const Color(0xFF22c55e),
+                      // Tap again to toggle back to pending
+                      onTap: () => _setRsvp(myStatus == 'going' ? 'pending' : 'going'),
+                    ),
+                    const SizedBox(width: 8),
+                    _RsvpButton(
+                      label: 'Non dispo',
+                      icon: Icons.close,
+                      isSelected: myStatus == 'not_going',
+                      activeColor: C.destructive,
+                      onTap: () => _setRsvp(myStatus == 'not_going' ? 'pending' : 'not_going'),
+                    ),
+                  ],
+                ),
+            ],
           ],
         ),
-        trailing: isCreator
-            ? Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.edit_outlined,
-                        color: C.textSecondary, size: 19),
-                    onPressed: onEdit,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-                  const SizedBox(width: 4),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline,
-                        color: C.textTertiary, size: 19),
-                    onPressed: onDelete,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-                ],
-              )
-            : null,
+      ),
+      ),
+    );
+  }
+}
+
+// ─── RSVP button ──────────────────────────────────────────────────────────────
+
+class _RsvpButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool isSelected;
+  final Color activeColor;
+  final VoidCallback onTap;
+
+  const _RsvpButton({
+    required this.label,
+    required this.icon,
+    required this.isSelected,
+    required this.activeColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: isSelected ? activeColor.withValues(alpha: 0.12) : C.surfaceAlt,
+          borderRadius: BorderRadius.circular(C.radiusFull),
+          border: Border.all(
+            color: isSelected ? activeColor : C.border,
+            width: 1.5,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 12, color: isSelected ? activeColor : C.textSecondary),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isSelected ? activeColor : C.textSecondary,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -677,7 +902,6 @@ class _EditTaskSheetState extends State<_EditTaskSheet> {
             const SizedBox(height: 16),
             TextField(
               controller: _titleCtrl,
-              autofocus: true,
               decoration: const InputDecoration(labelText: 'Titre'),
             ),
             const SizedBox(height: 14),
@@ -865,7 +1089,6 @@ class _EditEventSheetState extends State<_EditEventSheet> {
             const SizedBox(height: 16),
             TextField(
               controller: _titleCtrl,
-              autofocus: true,
               decoration: const InputDecoration(labelText: 'Titre'),
             ),
             const SizedBox(height: 14),
@@ -914,6 +1137,151 @@ class _EditEventSheetState extends State<_EditEventSheet> {
               onPressed: () => Navigator.of(context).pop(),
               child: const Text('Annuler'),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Event detail sheet ───────────────────────────────────────────────────────
+
+class _EventDetailSheet extends StatelessWidget {
+  final Map<String, dynamic> event;
+  const _EventDetailSheet({required this.event});
+
+  @override
+  Widget build(BuildContext context) {
+    final attendees = event['attendees'] as List? ?? [];
+    return Container(
+      decoration: const BoxDecoration(
+        color: C.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Handle
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: C.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Title
+            Text(
+              event['title'] ?? '',
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: C.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 10),
+            // Date + time
+            Row(
+              children: [
+                const Icon(Icons.calendar_today_outlined, size: 14, color: C.textSecondary),
+                const SizedBox(width: 6),
+                Text(
+                  event['date'] ?? '',
+                  style: const TextStyle(fontSize: 14, color: C.textSecondary),
+                ),
+                if (event['time_from'] != null) ...[
+                  const Text(' · ', style: TextStyle(color: C.textTertiary)),
+                  const Icon(Icons.access_time_outlined, size: 14, color: C.textSecondary),
+                  const SizedBox(width: 4),
+                  Text(
+                    event['time_from'],
+                    style: const TextStyle(fontSize: 14, color: C.textSecondary),
+                  ),
+                ],
+              ],
+            ),
+            if (event['family_name'] != null) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(Icons.group_outlined, size: 14, color: C.textSecondary),
+                  const SizedBox(width: 6),
+                  Text(
+                    event['family_name'],
+                    style: const TextStyle(fontSize: 14, color: C.textSecondary),
+                  ),
+                ],
+              ),
+            ],
+            if (event['created_by'] != null) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(Icons.person_outline, size: 14, color: C.textSecondary),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Par ${event['created_by']}',
+                    style: const TextStyle(fontSize: 14, color: C.textSecondary),
+                  ),
+                ],
+              ),
+            ],
+            if (event['description'] != null &&
+                (event['description'] as String).isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                event['description'],
+                style: const TextStyle(fontSize: 14, color: C.textPrimary, height: 1.4),
+              ),
+            ],
+            if (attendees.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              const Text(
+                'PARTICIPANTS',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: C.textTertiary,
+                  letterSpacing: 0.8,
+                ),
+              ),
+              const SizedBox(height: 8),
+              ...attendees.map((a) {
+                final map = a as Map;
+                final status = map['status'] as String? ?? 'pending';
+                final icon = status == 'going'
+                    ? Icons.check_circle
+                    : status == 'not_going'
+                        ? Icons.cancel
+                        : Icons.schedule;
+                final color = status == 'going'
+                    ? const Color(0xFF22c55e)
+                    : status == 'not_going'
+                        ? C.destructive
+                        : C.textTertiary;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 5),
+                  child: Row(
+                    children: [
+                      Icon(icon, size: 18, color: color),
+                      const SizedBox(width: 10),
+                      Text(
+                        map['user_name'] ?? '',
+                        style: const TextStyle(fontSize: 14, color: C.textPrimary),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
           ],
         ),
       ),

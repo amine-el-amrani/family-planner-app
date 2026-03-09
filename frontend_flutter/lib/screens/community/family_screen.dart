@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
@@ -136,7 +137,6 @@ class _FamilyScreenState extends State<FamilyScreen> {
               const SizedBox(height: 16),
               TextField(
                 controller: _nameCtrl,
-                autofocus: true,
                 textCapitalization: TextCapitalization.words,
                 decoration: const InputDecoration(hintText: 'Nom de la famille'),
                 onSubmitted: (_) => _createFamily(),
@@ -158,11 +158,19 @@ class _FamilyScreenState extends State<FamilyScreen> {
     );
   }
 
-  String _avatarUrl(Map<String, dynamic> family) {
-    final img = family['family_image'];
-    if (img == null) return '';
-    if (img.startsWith('http')) return img;
-    return '${_api.dio.options.baseUrl}$img';
+  ImageProvider? _avatarImage(Map<String, dynamic> family) {
+    final img = family['family_image'] as String?;
+    if (img == null || img.isEmpty) return null;
+    if (img.startsWith('data:')) {
+      try {
+        final b64 = img.split(',').last;
+        return MemoryImage(base64Decode(b64));
+      } catch (_) {
+        return null;
+      }
+    }
+    final url = img.startsWith('http') ? img : '${_api.dio.options.baseUrl}$img';
+    return NetworkImage(url);
   }
 
   @override
@@ -238,7 +246,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
                             ),
                             itemBuilder: (ctx, i) {
                               final family = _families[i];
-                              final url = _avatarUrl(family);
+                              final avatarImg = _avatarImage(family);
                               return ListTile(
                                 onTap: () =>
                                     context.push('/families/${family['id']}'),
@@ -246,10 +254,10 @@ class _FamilyScreenState extends State<FamilyScreen> {
                                   horizontal: 20,
                                   vertical: 6,
                                 ),
-                                leading: url.isNotEmpty
+                                leading: avatarImg != null
                                     ? CircleAvatar(
                                         radius: 22,
-                                        backgroundImage: NetworkImage(url),
+                                        backgroundImage: avatarImg,
                                         backgroundColor: C.primaryLight,
                                       )
                                     : CircleAvatar(

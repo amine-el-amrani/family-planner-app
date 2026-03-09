@@ -42,20 +42,41 @@ GoRouter buildRouter(AuthProvider auth) {
           familyId: int.parse(state.pathParameters['id']!),
         ),
       ),
-      ShellRoute(
-        builder: (ctx, state, child) => AppShell(child: child),
-        routes: [
-          GoRoute(path: '/home', builder: (ctx, _) => const HomeScreen()),
-          GoRoute(path: '/agenda', builder: (ctx, _) => const AgendaScreen()),
-          GoRoute(
-            path: '/shopping',
-            builder: (ctx, _) => const ShoppingScreen(),
+      // StatefulShellRoute preserves each tab's state across navigation
+      StatefulShellRoute.indexedStack(
+        builder: (ctx, state, shell) => AppShell(navigationShell: shell),
+        branches: [
+          StatefulShellBranch(
+            routes: [
+              GoRoute(path: '/home', builder: (ctx, _) => const HomeScreen()),
+            ],
           ),
-          GoRoute(
-            path: '/families',
-            builder: (ctx, _) => const FamilyScreen(),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(path: '/agenda', builder: (ctx, _) => const AgendaScreen()),
+            ],
           ),
-          GoRoute(path: '/profile', builder: (ctx, _) => const ProfileScreen()),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/shopping',
+                builder: (ctx, _) => const ShoppingScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/families',
+                builder: (ctx, _) => const FamilyScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(path: '/profile', builder: (ctx, _) => const ProfileScreen()),
+            ],
+          ),
         ],
       ),
     ],

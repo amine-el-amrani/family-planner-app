@@ -249,7 +249,6 @@ class _FamilyDetailsScreenState extends State<FamilyDetailsScreen>
               const SizedBox(height: 16),
               TextField(
                 controller: _inviteEmailCtrl,
-                autofocus: true,
                 keyboardType: TextInputType.emailAddress,
                 decoration: const InputDecoration(
                   hintText: 'Email du membre',
@@ -324,7 +323,6 @@ class _FamilyDetailsScreenState extends State<FamilyDetailsScreen>
               const SizedBox(height: 16),
               TextField(
                 controller: _noteTitleCtrl,
-                autofocus: true,
                 decoration: const InputDecoration(hintText: 'Titre'),
               ),
               const SizedBox(height: 10),
@@ -477,7 +475,6 @@ class _FamilyDetailsScreenState extends State<FamilyDetailsScreen>
               const SizedBox(height: 16),
               TextField(
                 controller: _editNameCtrl,
-                autofocus: true,
                 decoration: const InputDecoration(labelText: 'Nom'),
               ),
               const SizedBox(height: 10),

@@ -122,13 +122,55 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _toggleTask(Map<String, dynamic> task) async {
-    final newStatus =
-        task['status'] == 'fait' ? 'en_attente' : 'fait';
+  Future<void> _refreshKarma() async {
     try {
-      await _api.dio.patch('/tasks/${task['id']}', data: {'status': newStatus});
-      _loadData();
+      final res = await _api.dio.get('/users/me/karma');
+      if (mounted) setState(() => _karma = res.data as Map<String, dynamic>);
     } catch (_) {}
+  }
+
+  Future<void> _toggleTask(Map<String, dynamic> task) async {
+    final newStatus = task['status'] == 'fait' ? 'en_attente' : 'fait';
+    // Optimistic update — flip instantly in all lists
+    void flipIn(List<Map<String, dynamic>> list) {
+      final idx = list.indexWhere((t) => t['id'] == task['id']);
+      if (idx != -1) {
+        final updated = Map<String, dynamic>.from(task);
+        updated['status'] = newStatus;
+        list[idx] = updated;
+      }
+    }
+    setState(() {
+      flipIn(_myTasks);
+      flipIn(_familyTasks);
+      flipIn(_tomorrowUrgent);
+    });
+    try {
+      final res = await _api.dio.patch('/tasks/${task['id']}', data: {'status': newStatus});
+      // Backend now includes current_user_karma_total in the response — update directly
+      final newKarma = res.data['current_user_karma_total'];
+      if (newKarma != null && _karma != null && mounted) {
+        setState(() {
+          _karma = Map<String, dynamic>.from(_karma!)..['karma_total'] = newKarma;
+        });
+      } else {
+        // Fallback: separate GET request
+        _refreshKarma();
+      }
+    } catch (_) {
+      // Revert on failure
+      void revertIn(List<Map<String, dynamic>> list) {
+        final idx = list.indexWhere((t) => t['id'] == task['id']);
+        if (idx != -1) list[idx] = task;
+      }
+      if (mounted) {
+        setState(() {
+          revertIn(_myTasks);
+          revertIn(_familyTasks);
+          revertIn(_tomorrowUrgent);
+        });
+      }
+    }
   }
 
   Future<void> _createTask() async {
@@ -1069,7 +1111,6 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
               const SizedBox(height: 16),
               TextField(
                 controller: widget.titleCtrl,
-                autofocus: true,
                 decoration: const InputDecoration(hintText: 'Titre de la tâche'),
               ),
               const SizedBox(height: 10),
@@ -1305,7 +1346,6 @@ class _AddEventSheetState extends State<_AddEventSheet> {
               const SizedBox(height: 16),
               TextField(
                 controller: widget.titleCtrl,
-                autofocus: true,
                 decoration: const InputDecoration(hintText: 'Titre'),
               ),
               const SizedBox(height: 10),

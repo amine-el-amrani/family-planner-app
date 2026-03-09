@@ -2,39 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 class AppShell extends StatelessWidget {
-  final Widget child;
-  const AppShell({super.key, required this.child});
-
-  int _currentIndex(String location) {
-    if (location.startsWith('/home')) return 0;
-    if (location.startsWith('/agenda')) return 1;
-    if (location.startsWith('/shopping')) return 2;
-    if (location.startsWith('/families')) return 3;
-    if (location.startsWith('/profile')) return 4;
-    return 0;
-  }
+  final StatefulNavigationShell navigationShell;
+  const AppShell({super.key, required this.navigationShell});
 
   @override
   Widget build(BuildContext context) {
-    final location = GoRouterState.of(context).matchedLocation;
     return Scaffold(
-      body: child,
+      body: navigationShell,
       bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex(location),
-        onTap: (i) {
-          switch (i) {
-            case 0:
-              context.go('/home');
-            case 1:
-              context.go('/agenda');
-            case 2:
-              context.go('/shopping');
-            case 3:
-              context.go('/families');
-            case 4:
-              context.go('/profile');
-          }
-        },
+        currentIndex: navigationShell.currentIndex,
+        onTap: (i) => navigationShell.goBranch(
+          i,
+          // Re-tap active tab scrolls to top (like native apps)
+          initialLocation: i == navigationShell.currentIndex,
+        ),
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.today_outlined),

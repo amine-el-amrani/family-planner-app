@@ -18,15 +18,13 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const targetUrl = (event.notification.data && event.notification.data.url) || '/';
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // Focus existing tab if open
-      for (const client of clientList) {
-        if ('focus' in client) {
-          client.navigate(targetUrl);
-          return client.focus();
-        }
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      if (windowClients.length > 0) {
+        // Navigate the first existing window to the target URL, then focus it
+        const client = windowClients[0];
+        return client.navigate(targetUrl).then((c) => (c || client).focus());
       }
-      // Otherwise open new tab
+      // No window open — open a new one
       return clients.openWindow(targetUrl);
     })
   );

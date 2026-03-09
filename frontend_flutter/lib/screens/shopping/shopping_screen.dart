@@ -67,20 +67,25 @@ class _ShoppingScreenState extends State<ShoppingScreen> {
   }
 
   Future<void> _loadItems(int listId) async {
-    setState(() => _loadingItems = true);
+    // Show the detail view immediately — no wait for API
+    final list = _lists.firstWhere((l) => l['id'] == listId);
+    setState(() {
+      _selectedList = list;
+      _selectedListId = listId;
+      _loadingItems = true;
+    });
     try {
       final res = await _api.dio.get('/shopping/lists/$listId/items');
-      final list = _lists.firstWhere((l) => l['id'] == listId);
-      setState(() {
-        _selectedList = list;
-        _selectedListId = listId;
-        _items = List<Map<String, dynamic>>.from(
-          (res.data as List).map((e) => Map<String, dynamic>.from(e)),
-        );
-        _loadingItems = false;
-      });
+      if (mounted) {
+        setState(() {
+          _items = List<Map<String, dynamic>>.from(
+            (res.data as List).map((e) => Map<String, dynamic>.from(e)),
+          );
+          _loadingItems = false;
+        });
+      }
     } catch (_) {
-      setState(() => _loadingItems = false);
+      if (mounted) setState(() => _loadingItems = false);
     }
   }
 
@@ -117,12 +122,17 @@ class _ShoppingScreenState extends State<ShoppingScreen> {
           'is_checked': false,
         }));
     try {
-      await _api.dio.post('/shopping/lists/$_selectedListId/items', data: {
+      final res = await _api.dio.post('/shopping/lists/$_selectedListId/items', data: {
         'title': title.trim(),
         'quantity': qty.toString(),
         if (imageUrl != null && imageUrl.isNotEmpty) 'image_url': imageUrl,
       });
-      _loadItems(_selectedListId!); // replace temp with real server data
+      // Replace temp item with real server data (preserves real id)
+      final newItem = Map<String, dynamic>.from(res.data as Map);
+      setState(() {
+        final idx = _items.indexWhere((i) => i['id'] == tempId);
+        if (idx != -1) _items[idx] = newItem;
+      });
     } catch (e) {
       setState(() => _items.removeWhere((i) => i['id'] == tempId));
       if (mounted) {
@@ -144,19 +154,72 @@ class _ShoppingScreenState extends State<ShoppingScreen> {
       setState(() => _items[idx] = toggled);
     }
     try {
-      await _api.dio.patch('/shopping/items/${item['id']}/toggle');
-      _loadItems(_selectedListId!);
+      final res = await _api.dio.patch('/shopping/items/${item['id']}/toggle');
+      // Update item from server response (checked_by, checked_at, etc.)
+      final updated = Map<String, dynamic>.from(res.data as Map);
+      if (mounted) {
+        setState(() {
+          final i2 = _items.indexWhere((i) => i['id'] == item['id']);
+          if (i2 != -1) _items[i2] = updated;
+        });
+      }
     } catch (_) {
       // Revert optimistic change on failure
-      if (idx != -1) setState(() => _items[idx] = item);
+      if (idx != -1 && mounted) setState(() => _items[idx] = item);
     }
   }
 
   Future<void> _deleteItem(int itemId) async {
+    // Optimistic delete — remove instantly, revert on error
+    final idx = _items.indexWhere((i) => i['id'] == itemId);
+    final removed = idx != -1 ? Map<String, dynamic>.from(_items[idx]) : null;
+    if (idx != -1) setState(() => _items.removeAt(idx));
     try {
       await _api.dio.delete('/shopping/items/$itemId');
-      _loadItems(_selectedListId!);
-    } catch (_) {}
+    } catch (_) {
+      // Revert on failure
+      if (removed != null && mounted) setState(() => _items.insert(idx, removed));
+    }
+  }
+
+  Future<void> _deleteList(int listId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Supprimer la liste'),
+        content: const Text('Supprimer cette liste et tous ses articles ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: C.destructive),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      try {
+        await _api.dio.delete('/shopping/lists/$listId');
+        setState(() {
+          _lists.removeWhere((l) => l['id'] == listId);
+          _selectedListId = null;
+          _selectedList = null;
+          _items = [];
+        });
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Erreur lors de la suppression'),
+            backgroundColor: C.destructive,
+            behavior: SnackBarBehavior.floating,
+          ));
+        }
+      }
+    }
   }
 
   void _showCreateListSheet() {
@@ -202,7 +265,6 @@ class _ShoppingScreenState extends State<ShoppingScreen> {
                 const SizedBox(height: 16),
                 TextField(
                   controller: _listNameCtrl,
-                  autofocus: true,
                   decoration:
                       const InputDecoration(hintText: 'Nom de la liste'),
                   onSubmitted: (_) => _createList(selectedFamilyId),
@@ -262,6 +324,7 @@ class _ShoppingScreenState extends State<ShoppingScreen> {
         onAddItem: _addItem,
         onToggleItem: _toggleItem,
         onDeleteItem: _deleteItem,
+        onDeleteList: () => _deleteList(_selectedListId!),
         onRefresh: () => _loadItems(_selectedListId!),
       );
     }
@@ -402,7 +465,8 @@ class _ShoppingScreenState extends State<ShoppingScreen> {
 
 class _ProductPickerSheet extends StatefulWidget {
   final Future<void> Function(String title, int qty, {String? imageUrl}) onAdd;
-  const _ProductPickerSheet({required this.onAdd});
+  final ScrollController scrollController;
+  const _ProductPickerSheet({required this.onAdd, required this.scrollController});
 
   @override
   State<_ProductPickerSheet> createState() => _ProductPickerSheetState();
@@ -411,15 +475,46 @@ class _ProductPickerSheet extends StatefulWidget {
 class _ProductPickerSheetState extends State<_ProductPickerSheet> {
   // Common products shown when search is empty
   static const _commonProducts = [
-    ('🥚', 'Œufs'), ('🥩', 'Bœuf haché'), ('🍗', 'Poulet'), ('🐟', 'Poisson'),
-    ('🍞', 'Pain de mie'), ('🥖', 'Baguette'), ('🥛', 'Lait'), ('🧀', 'Fromage'),
-    ('🧈', 'Beurre'), ('🍎', 'Pommes'), ('🍊', 'Oranges'), ('🍌', 'Bananes'),
+    // ── Fruits ──
+    ('🍎', 'Pommes'), ('🍊', 'Oranges'), ('🍋', 'Citrons'), ('🍌', 'Bananes'),
+    ('🍇', 'Raisins'), ('🍓', 'Fraises'), ('🫐', 'Myrtilles'), ('🍒', 'Cerises'),
+    ('🍑', 'Pêches'), ('🍐', 'Poires'), ('🥝', 'Kiwis'), ('🍍', 'Ananas'),
+    ('🥭', 'Mangues'), ('🍉', 'Pastèque'), ('🍈', 'Melon'), ('🍑', 'Abricots'),
+    ('🫒', 'Olives'), ('🍒', 'Framboises'),
+    // ── Légumes ──
     ('🍅', 'Tomates'), ('🥕', 'Carottes'), ('🥦', 'Brocoli'), ('🥬', 'Salade'),
-    ('🧅', 'Oignons'), ('🥔', 'Pommes de terre'), ('🍝', 'Pâtes'), ('🍚', 'Riz'),
-    ('🌾', 'Farine'), ('🍯', 'Miel'), ('🧂', 'Sel'), ('🫒', 'Huile d\'olive'),
+    ('🧅', 'Oignons'), ('🥔', 'Pommes de terre'), ('🫑', 'Poivrons'), ('🥒', 'Concombres'),
+    ('🍆', 'Aubergines'), ('🥑', 'Avocats'), ('🌽', 'Maïs'), ('🧄', 'Ail'),
+    ('🥜', 'Haricots verts'), ('🌿', 'Poireaux'), ('🍄', 'Champignons'),
+    ('🥗', 'Épinards'), ('🌱', 'Courgettes'), ('🫛', 'Petits pois'),
+    ('🥦', 'Chou-fleur'), ('🥬', 'Chou'), ('🫚', 'Betteraves'), ('🌾', 'Asperges'),
+    ('🥗', 'Céleri'), ('🥦', 'Brocolis'),
+    // ── Viandes & Poissons ──
+    ('🍗', 'Poulet'), ('🥩', 'Bœuf haché'), ('🥓', 'Lardons'), ('🍖', 'Côtelettes'),
+    ('🥩', 'Steak'), ('🌭', 'Jambon'), ('🐟', 'Saumon'), ('🐟', 'Thon'),
+    ('🦐', 'Crevettes'), ('🐠', 'Poisson'), ('🥚', 'Œufs'),
+    // ── Produits laitiers ──
+    ('🥛', 'Lait'), ('🧀', 'Fromage'), ('🧈', 'Beurre'), ('🥛', 'Yaourts'),
+    ('🍦', 'Crème fraîche'), ('🥛', 'Crème liquide'),
+    // ── Boulangerie & Petit-déj ──
+    ('🍞', 'Pain de mie'), ('🥖', 'Baguette'), ('🥐', 'Croissants'),
+    ('🥣', 'Céréales'), ('🍯', 'Miel'), ('🍫', 'Chocolat à tartiner'),
+    ('🫙', 'Confiture'),
+    // ── Épicerie ──
+    ('🍝', 'Pâtes'), ('🍚', 'Riz'), ('🌾', 'Farine'), ('🧂', 'Sel'),
+    ('🍬', 'Sucre'), ('🫒', 'Huile d\'olive'), ('🍶', 'Vinaigre'),
+    ('🥫', 'Conserves'), ('🍲', 'Bouillon'), ('🧴', 'Sauce tomate'),
+    ('🥡', 'Moutarde'), ('🍅', 'Ketchup'),
+    // ── Boissons ──
     ('☕', 'Café'), ('🍵', 'Thé'), ('🧃', 'Jus d\'orange'), ('💧', 'Eau'),
-    ('🍫', 'Chocolat'), ('🧻', 'Papier WC'), ('🧴', 'Shampooing'), ('🍺', 'Bière'),
-    ('🍷', 'Vin'), ('🥣', 'Céréales'), ('🫙', 'Conserves'), ('🧹', 'Liquide vaisselle'),
+    ('🍺', 'Bière'), ('🍷', 'Vin'), ('🥤', 'Sodas'),
+    // ── Surgelés & Snacks ──
+    ('🍕', 'Pizza surgelée'), ('🍟', 'Frites surgelées'), ('🍫', 'Chocolat'),
+    ('🍪', 'Biscuits'), ('🥨', 'Chips'),
+    // ── Hygiène & Maison ──
+    ('🧻', 'Papier WC'), ('🧴', 'Shampooing'), ('🪥', 'Dentifrice'),
+    ('🧼', 'Savon'), ('🧺', 'Lessive'), ('🫧', 'Liquide vaisselle'),
+    ('🧹', 'Éponges'),
   ];
 
   final _searchCtrl = TextEditingController();
@@ -493,18 +588,14 @@ class _ProductPickerSheetState extends State<_ProductPickerSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final useApi = _query.length >= 2;
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
 
     return Container(
       decoration: const BoxDecoration(
         color: C.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-      ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         children: [
           // Handle
           Padding(
@@ -536,7 +627,7 @@ class _ProductPickerSheetState extends State<_ProductPickerSheet> {
             child: TextField(
               controller: _searchCtrl,
               decoration: InputDecoration(
-                hintText: 'Rechercher parmi des millions de produits...',
+                hintText: 'Rechercher un article...',
                 prefixIcon: const Icon(Icons.search, color: C.textSecondary),
                 isDense: true,
                 suffixIcon: _query.isNotEmpty
@@ -554,23 +645,97 @@ class _ProductPickerSheetState extends State<_ProductPickerSheet> {
           ),
           const SizedBox(height: 10),
 
-          // Results area
-          SizedBox(
-            height: 200,
-            child: useApi
-                ? _apiLoading
-                    ? const Center(child: CircularProgressIndicator(color: C.primary, strokeWidth: 2))
-                    : _apiResults.isEmpty
-                        ? Center(
+          // Results area — Expanded so it fills available sheet space
+          Expanded(
+            child: _query.length >= 2
+                // ── Search mode: common matches on top, then API results ──
+                ? CustomScrollView(
+                    controller: widget.scrollController,
+                    slivers: [
+                      // Section: common product suggestions
+                      if (_filteredCommon.isNotEmpty) ...[
+                        const SliverToBoxAdapter(
+                          child: Padding(
+                            padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
                             child: Text(
-                              'Aucun produit trouvé pour "$_query"',
-                              style: const TextStyle(color: C.textSecondary, fontSize: 13),
+                              'Suggestions',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: C.textSecondary),
                             ),
-                          )
-                        : ListView.builder(
-                            padding: EdgeInsets.zero,
-                            itemCount: _apiResults.length,
-                            itemBuilder: (ctx, i) {
+                          ),
+                        ),
+                        SliverPadding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          sliver: SliverGrid(
+                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 4,
+                              childAspectRatio: 0.85,
+                              crossAxisSpacing: 8,
+                              mainAxisSpacing: 8,
+                            ),
+                            delegate: SliverChildBuilderDelegate(
+                              (ctx, i) {
+                                final (emoji, name) = _filteredCommon[i];
+                                final isSelected = _selected == name && _customCtrl.text.trim().isEmpty;
+                                return GestureDetector(
+                                  onTap: () => _selectProduct(name, imageUrl: 'emoji:$emoji'),
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 150),
+                                    decoration: BoxDecoration(
+                                      color: isSelected ? C.primaryLight : C.surfaceAlt,
+                                      borderRadius: BorderRadius.circular(C.radiusBase),
+                                      border: Border.all(
+                                        color: isSelected ? C.primary : Colors.transparent,
+                                        width: 2,
+                                      ),
+                                    ),
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Text(emoji, style: const TextStyle(fontSize: 24)),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          name,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w600,
+                                            color: isSelected ? C.primary : C.textSecondary,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                              childCount: _filteredCommon.length,
+                            ),
+                          ),
+                        ),
+                        const SliverToBoxAdapter(child: SizedBox(height: 12)),
+                      ],
+                      // Section: API catalogue results
+                      if (_apiLoading)
+                        const SliverToBoxAdapter(
+                          child: Padding(
+                            padding: EdgeInsets.all(20),
+                            child: Center(child: CircularProgressIndicator(color: C.primary, strokeWidth: 2)),
+                          ),
+                        )
+                      else if (_apiResults.isNotEmpty) ...[
+                        const SliverToBoxAdapter(
+                          child: Padding(
+                            padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+                            child: Text(
+                              'Catalogue',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: C.textSecondary),
+                            ),
+                          ),
+                        ),
+                        SliverList(
+                          delegate: SliverChildBuilderDelegate(
+                            (ctx, i) {
                               final p = _apiResults[i];
                               final isSelected = _selected == p['name'] && _customCtrl.text.trim().isEmpty;
                               return ListTile(
@@ -618,13 +783,28 @@ class _ProductPickerSheetState extends State<_ProductPickerSheet> {
                                 ),
                               );
                             },
-                          )
-                // Common products grid
+                            childCount: _apiResults.length,
+                          ),
+                        ),
+                      ] else if (_filteredCommon.isEmpty)
+                        SliverFillRemaining(
+                          hasScrollBody: false,
+                          child: Center(
+                            child: Text(
+                              'Aucun résultat pour "$_query"',
+                              style: const TextStyle(color: C.textSecondary, fontSize: 13),
+                            ),
+                          ),
+                        ),
+                    ],
+                  )
+                // ── No query: full common products grid ──
                 : _filteredCommon.isEmpty
                     ? const Center(
                         child: Text('Aucun produit trouvé', style: TextStyle(color: C.textSecondary)),
                       )
                     : GridView.builder(
+                        controller: widget.scrollController,
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: 4,
@@ -637,7 +817,7 @@ class _ProductPickerSheetState extends State<_ProductPickerSheet> {
                           final (emoji, name) = _filteredCommon[i];
                           final isSelected = _selected == name && _customCtrl.text.trim().isEmpty;
                           return GestureDetector(
-                            onTap: () => _selectProduct(name, imageUrl: null),
+                            onTap: () => _selectProduct(name, imageUrl: 'emoji:$emoji'),
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 150),
                               decoration: BoxDecoration(
@@ -690,7 +870,7 @@ class _ProductPickerSheetState extends State<_ProductPickerSheet> {
           const SizedBox(height: 12),
           // Qty + Add button
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 16 + bottomInset),
             child: Row(
               children: [
                 Container(
@@ -746,6 +926,7 @@ class _ListDetailView extends StatelessWidget {
   final Future<void> Function(String title, int qty, {String? imageUrl}) onAddItem;
   final ValueChanged<Map<String, dynamic>> onToggleItem;
   final ValueChanged<int> onDeleteItem;
+  final VoidCallback onDeleteList;
   final VoidCallback onRefresh;
   const _ListDetailView({
     required this.list,
@@ -755,6 +936,7 @@ class _ListDetailView extends StatelessWidget {
     required this.onAddItem,
     required this.onToggleItem,
     required this.onDeleteItem,
+    required this.onDeleteList,
     required this.onRefresh,
   });
 
@@ -762,8 +944,20 @@ class _ListDetailView extends StatelessWidget {
     showModalBottomSheet(
       context: ctx,
       isScrollControlled: true,
+      enableDrag: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _ProductPickerSheet(onAdd: onAddItem),
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.35,
+        maxChildSize: 1.0,
+        expand: false,
+        snap: true,
+        snapSizes: const [0.6, 1.0],
+        builder: (sheetCtx, scrollCtrl) => _ProductPickerSheet(
+          onAdd: onAddItem,
+          scrollController: scrollCtrl,
+        ),
+      ),
     );
   }
 
@@ -799,7 +993,7 @@ class _ListDetailView extends StatelessWidget {
         ),
         actions: [
           Padding(
-            padding: const EdgeInsets.only(right: 8),
+            padding: const EdgeInsets.only(right: 4),
             child: Builder(
               builder: (innerCtx) => TextButton.icon(
                 onPressed: () => _openPicker(innerCtx),
@@ -808,6 +1002,11 @@ class _ListDetailView extends StatelessWidget {
                 style: TextButton.styleFrom(foregroundColor: C.primary),
               ),
             ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: C.destructive),
+            tooltip: 'Supprimer la liste',
+            onPressed: onDeleteList,
           ),
         ],
       ),
@@ -937,6 +1136,8 @@ class _ShoppingItem extends StatelessWidget {
     final isChecked = item['is_checked'] ?? false;
     final imageUrl = item['image_url'] as String?;
     final hasImage = imageUrl != null && imageUrl.isNotEmpty;
+    final isEmoji = hasImage && imageUrl.startsWith('emoji:');
+    final emojiChar = isEmoji ? imageUrl.substring(6) : '';
 
     return Dismissible(
       key: Key('item_${item['id']}'),
@@ -956,23 +1157,39 @@ class _ShoppingItem extends StatelessWidget {
           child: hasImage
               ? Stack(
                   children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.network(
-                        imageUrl,
+                    // Emoji product (common predefined items)
+                    if (isEmoji)
+                      Container(
                         width: 44,
                         height: 44,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Container(
-                            width: 44, height: 44,
+                        decoration: BoxDecoration(
+                          color: C.surfaceAlt,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Center(
+                          child: Text(emojiChar, style: const TextStyle(fontSize: 24)),
+                        ),
+                      )
+                    // Real product photo from Open Food Facts
+                    else
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          imageUrl,
+                          width: 44,
+                          height: 44,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            width: 44,
+                            height: 44,
                             decoration: BoxDecoration(
                               color: C.surfaceAlt,
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: const Icon(Icons.shopping_basket_outlined, size: 20, color: C.textTertiary),
                           ),
+                        ),
                       ),
-                    ),
                     if (isChecked)
                       Positioned.fill(
                         child: Container(
