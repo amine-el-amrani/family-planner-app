@@ -105,7 +105,8 @@ def create_task(
         send_push(
             assigned_user.push_token,
             f"📋 {current_user.full_name}",
-            f"T'a confié '{task_data.title}' — à toi de jouer ! 💪"
+            f"T'a confié '{task_data.title}' — à toi de jouer ! 💪",
+            url="/home",
         )
 
     return _task_to_dict(task)
@@ -267,15 +268,15 @@ def update_task(
 
     if assignee_push:
         send_push(assignee_push, f"✏️ {current_user.full_name}",
-                       f"A retouché '{task.title}' — jette un œil 👀")
+                  f"A retouché '{task.title}' — jette un œil 👀", url="/home")
 
     if creator_push:
         if task_data.status.value == "fait":
             send_push(creator_push, f"🎉 Tâche accomplie !",
-                           f"{current_user.full_name} a terminé '{task.title}' ✅")
+                      f"{current_user.full_name} a terminé '{task.title}' ✅", url="/home")
         else:
             send_push(creator_push, f"↩️ Tâche rouverte",
-                           f"{current_user.full_name} a remis '{task.title}' en attente")
+                      f"{current_user.full_name} a remis '{task.title}' en attente", url="/home")
 
     result = _task_to_dict(task)
     result['current_user_karma_total'] = current_user.karma_total or 0
@@ -311,7 +312,7 @@ def delete_task(
 
     if assignee_id and assignee_id != current_user.id and assignee_push:
         send_push(assignee_push, f"🗑️ {current_user.full_name}",
-                       f"A supprimé la tâche '{task_title}'")
+                  f"A supprimé la tâche '{task_title}'", url="/home")
 
 
 @router.get("/agenda")
