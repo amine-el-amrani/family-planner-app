@@ -2,7 +2,7 @@ from typing import Optional, List
 from datetime import datetime, timedelta, date as date_type
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, update as sql_update
 from app.database import get_db
 from app.auth.deps import get_current_user
 from app.users.models import User
@@ -207,12 +207,25 @@ def update_task(
         # Karma goes to assignee if the task is assigned to someone other than the updater
         is_assigned_to_other = task.assigned_to_id and task.assigned_to_id != current_user.id
         karma_recipient = task.assigned_to if is_assigned_to_other else current_user
+        karma_recipient_id = karma_recipient.id
+        current_karma = karma_recipient.karma_total or 0
 
         if new_status == "fait":
             task.completed_at = datetime.utcnow()
-            karma_recipient.karma_total = (karma_recipient.karma_total or 0) + 10
+            new_karma = current_karma + 10
+            # Use direct SQL UPDATE to bypass SQLAlchemy ORM tracking issues
+            db.execute(
+                sql_update(User)
+                .where(User.id == karma_recipient_id)
+                .values(karma_total=new_karma)
+            )
         elif new_status in ("en_attente", "annule") and old_completed_at is not None:
-            karma_recipient.karma_total = max(0, (karma_recipient.karma_total or 0) - 10)
+            new_karma = max(0, current_karma - 10)
+            db.execute(
+                sql_update(User)
+                .where(User.id == karma_recipient_id)
+                .values(karma_total=new_karma)
+            )
             task.completed_at = None
 
     # Notify assignee when creator modifies task content
@@ -250,6 +263,7 @@ def update_task(
 
     db.commit()
     db.refresh(task)
+    db.refresh(current_user)  # reload to get updated karma_total
 
     if assignee_push:
         send_push(assignee_push, f"✏️ {current_user.full_name}",
@@ -263,7 +277,9 @@ def update_task(
             send_push(creator_push, f"↩️ Tâche rouverte",
                            f"{current_user.full_name} a remis '{task.title}' en attente")
 
-    return _task_to_dict(task)
+    result = _task_to_dict(task)
+    result['current_user_karma_total'] = current_user.karma_total or 0
+    return result
 
 
 @router.delete("/{task_id}", status_code=204)
