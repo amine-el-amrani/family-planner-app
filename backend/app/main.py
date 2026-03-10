@@ -61,6 +61,10 @@ async def lifespan(app: FastAPI):
     except Exception as _e:
         print(f"[ALEMBIC] Could not read revision: {_e}", flush=True)
 
+    # ── Dump all env var NAMES (safe: no values printed) ─────────────────
+    _all_keys = sorted(_os.environ.keys())
+    print(f"[ENV] All variables ({len(_all_keys)}): {', '.join(_all_keys)}", flush=True)
+
     # ── VAPID env var diagnostic ──────────────────────────────────────────
     _vapid_key = _os.environ.get("VAPID_PRIVATE_KEY", "")
     _vapid_pub = _os.environ.get("VAPID_PUBLIC_KEY", "")
