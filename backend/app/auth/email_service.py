@@ -3,12 +3,11 @@ import os
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-GMAIL_USER = os.getenv("GMAIL_USER", "")
-GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
-
 
 def send_verification_email(to_email: str, code: str, purpose: str) -> bool:
     """Send a 6-digit verification code by email via Gmail SMTP."""
+    GMAIL_USER = os.getenv("GMAIL_USER", "")
+    GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
     if not GMAIL_USER or not GMAIL_APP_PASSWORD:
         # Dev fallback: print the code so you can test without SMTP configured
         print(f"[EMAIL SKIP] Code for {to_email} ({purpose}): {code}")
