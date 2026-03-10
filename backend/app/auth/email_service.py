@@ -45,8 +45,11 @@ def send_verification_email(to_email: str, code: str, purpose: str) -> bool:
     SMTP_USER = os.getenv("BREVO_SMTP_USER", "")
     SMTP_KEY = os.getenv("BREVO_SMTP_KEY", "")
 
+    print(f"[EMAIL DEBUG] BREVO_SMTP_USER={'SET(' + SMTP_USER[:6] + '...)' if SMTP_USER else 'MISSING'}, "
+          f"BREVO_SMTP_KEY={'SET(' + str(len(SMTP_KEY)) + ' chars)' if SMTP_KEY else 'MISSING'}", flush=True)
+
     if not SMTP_USER or not SMTP_KEY:
-        print(f"[EMAIL SKIP -- set BREVO_SMTP_USER + BREVO_SMTP_KEY] Code for {to_email} ({purpose}): {code}")
+        print(f"[EMAIL SKIP -- set BREVO_SMTP_USER + BREVO_SMTP_KEY] Code for {to_email} ({purpose}): {code}", flush=True)
         return True
 
     FROM_NAME = os.getenv("BREVO_FROM_NAME", "Family Planner")

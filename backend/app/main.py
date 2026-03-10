@@ -57,26 +57,28 @@ async def lifespan(app: FastAPI):
         with engine.connect() as _conn:
             _mig_ctx = MigrationContext.configure(_conn)
             _current_rev = _mig_ctx.get_current_revision()
-        logger.info(f"[ALEMBIC] Current migration revision: {_current_rev}")
+        print(f"[ALEMBIC] Current migration revision: {_current_rev}", flush=True)
     except Exception as _e:
-        logger.warning(f"[ALEMBIC] Could not read revision: {_e}")
+        print(f"[ALEMBIC] Could not read revision: {_e}", flush=True)
 
     # ── VAPID env var diagnostic ──────────────────────────────────────────
     _vapid_key = _os.environ.get("VAPID_PRIVATE_KEY", "")
     _vapid_pub = _os.environ.get("VAPID_PUBLIC_KEY", "")
-    logger.info(
+    print(
         f"[ENV] VAPID: "
         f"PRIVATE_KEY={'SET(' + str(len(_vapid_key)) + ' chars)' if _vapid_key else 'MISSING'}, "
-        f"PUBLIC_KEY={'SET(' + str(len(_vapid_pub)) + ' chars)' if _vapid_pub else 'MISSING'}"
+        f"PUBLIC_KEY={'SET(' + str(len(_vapid_pub)) + ' chars)' if _vapid_pub else 'MISSING'}",
+        flush=True,
     )
 
     # ── Brevo SMTP env var diagnostic ──────────────────────────────────
     _brevo_user = _os.environ.get("BREVO_SMTP_USER", "")
     _brevo_key = _os.environ.get("BREVO_SMTP_KEY", "")
-    logger.info(
+    print(
         f"[ENV] BREVO: "
-        f"SMTP_USER={'SET(' + _brevo_user[:4] + '...)' if _brevo_user else 'MISSING'}, "
-        f"SMTP_KEY={'SET(' + str(len(_brevo_key)) + ' chars)' if _brevo_key else 'MISSING'}"
+        f"SMTP_USER={'SET(' + _brevo_user[:6] + '...)' if _brevo_user else 'MISSING'}, "
+        f"SMTP_KEY={'SET(' + str(len(_brevo_key)) + ' chars)' if _brevo_key else 'MISSING'}",
+        flush=True,
     )
 
     # Daily reminder at 08:00 every day
