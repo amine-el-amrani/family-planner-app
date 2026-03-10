@@ -211,6 +211,21 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _showEditTask(Map<String, dynamic> task) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _HomeEditTaskSheet(
+        task: task,
+        onSave: (data) async {
+          await _api.dio.patch('/tasks/${task['id']}', data: data);
+          if (mounted) _loadData();
+        },
+      ),
+    );
+  }
+
   Future<void> _createTask() async {
     if (_titleCtrl.text.trim().isEmpty) return;
     try {
@@ -533,6 +548,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             onToggle: () => _toggleTask(_myTasks[i]),
                             onDelete: () => _deleteTask(_myTasks[i]),
+                            onTap: () => _showEditTask(_myTasks[i]),
                           ),
                           childCount: _myTasks.length,
                         ),
@@ -556,6 +572,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             onToggle: () => _toggleTask(_familyTasks[i]),
                             onDelete: () => _deleteTask(_familyTasks[i]),
+                            onTap: () => _showEditTask(_familyTasks[i]),
                           ),
                           childCount: _familyTasks.length,
                         ),
@@ -578,6 +595,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             onToggle: () => _toggleTask(_tomorrowUrgent[i]),
                             onDelete: () => _deleteTask(_tomorrowUrgent[i]),
+                            onTap: () => _showEditTask(_tomorrowUrgent[i]),
                           ),
                           childCount: _tomorrowUrgent.length,
                         ),
@@ -846,11 +864,13 @@ class _TaskTile extends StatelessWidget {
   final Color priorityColor;
   final VoidCallback onToggle;
   final VoidCallback? onDelete;
+  final VoidCallback? onTap;
   const _TaskTile({
     required this.task,
     required this.priorityColor,
     required this.onToggle,
     this.onDelete,
+    this.onTap,
   });
 
   String? _dueDateLabel() {
@@ -899,6 +919,7 @@ class _TaskTile extends StatelessWidget {
         priorityColor == C.borderLight ? C.primary : priorityColor;
 
     return GestureDetector(
+      onTap: onTap,
       onLongPress: onDelete == null ? null : () {
         HapticFeedback.mediumImpact();
         onDelete!();
@@ -1819,6 +1840,167 @@ class _DateField extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─── Home Edit Task Sheet ─────────────────────────────────────────────────────
+
+class _HomeEditTaskSheet extends StatefulWidget {
+  final Map<String, dynamic> task;
+  final Future<void> Function(Map<String, dynamic> data) onSave;
+  const _HomeEditTaskSheet({required this.task, required this.onSave});
+
+  @override
+  State<_HomeEditTaskSheet> createState() => _HomeEditTaskSheetState();
+}
+
+class _HomeEditTaskSheetState extends State<_HomeEditTaskSheet> {
+  late TextEditingController _titleCtrl;
+  late String _priority;
+  DateTime? _dueDate;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _titleCtrl = TextEditingController(
+        text: widget.task['title'] as String? ?? '');
+    _priority = widget.task['priority'] as String? ?? 'normale';
+    final raw = widget.task['due_date'] as String?;
+    if (raw != null) {
+      try { _dueDate = DateTime.parse(raw); } catch (_) {}
+    }
+  }
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_titleCtrl.text.trim().isEmpty) return;
+    setState(() => _saving = true);
+    try {
+      await widget.onSave({
+        'title': _titleCtrl.text.trim(),
+        'priority': _priority,
+        if (_dueDate != null)
+          'due_date': DateFormat('yyyy-MM-dd').format(_dueDate!),
+      });
+      if (mounted) Navigator.of(context).pop();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Erreur lors de la modification'),
+          backgroundColor: C.destructive,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: C.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(
+                  color: C.border, borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Modifier la tâche',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: C.textPrimary),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _titleCtrl,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'Titre'),
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              children: [
+                for (final p in ['normale', 'haute', 'urgente'])
+                  ChoiceChip(
+                    label: Text(p == 'normale' ? 'Normale' : p == 'haute' ? 'Haute' : 'Urgente'),
+                    selected: _priority == p,
+                    selectedColor: p == 'urgente'
+                        ? const Color(0xFFfee2e2)
+                        : p == 'haute'
+                            ? const Color(0xFFffedd5)
+                            : C.primaryLight,
+                    onSelected: (_) => setState(() => _priority = p),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            OutlinedButton.icon(
+              onPressed: () async {
+                final d = await showDatePicker(
+                  context: context,
+                  initialDate: _dueDate ?? DateTime.now(),
+                  firstDate: DateTime(2020),
+                  lastDate: DateTime(2030),
+                  locale: const Locale('fr', 'FR'),
+                );
+                if (d != null) setState(() => _dueDate = d);
+              },
+              icon: const Icon(Icons.calendar_today_outlined, size: 16),
+              label: Text(
+                _dueDate != null
+                    ? DateFormat("EEE d MMM", 'fr_FR').format(_dueDate!)
+                    : "Date d'échéance",
+              ),
+            ),
+            if (_dueDate != null) ...[
+              const SizedBox(height: 6),
+              TextButton.icon(
+                onPressed: () => setState(() => _dueDate = null),
+                icon: const Icon(Icons.close, size: 14, color: C.textTertiary),
+                label: const Text('Supprimer la date',
+                    style: TextStyle(fontSize: 12, color: C.textTertiary)),
+                style: TextButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ],
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: _saving ? null : _save,
+              child: _saving
+                  ? const SizedBox(
+                      height: 20, width: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Text('Sauvegarder'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Annuler'),
+            ),
+          ],
+        ),
       ),
     );
   }

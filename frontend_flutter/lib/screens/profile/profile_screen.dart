@@ -380,6 +380,87 @@ class _ProfileScreenState extends State<ProfileScreen> {
     emailCtrl.dispose(); codeCtrl.dispose();
   }
 
+  Future<void> _showDailyGoalDialog() async {
+    final current = (_profile?['daily_goal'] as int?) ?? 5;
+    int selected = current;
+    final confirmed = await showDialog<int>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSt) => AlertDialog(
+          title: const Text('Objectif quotidien',
+              style: TextStyle(fontWeight: FontWeight.w700, color: C.textPrimary)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Nombre de tâches à accomplir par jour',
+                  style: TextStyle(fontSize: 13, color: C.textSecondary)),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(
+                    onPressed: selected > 1 ? () => setSt(() => selected--) : null,
+                    icon: const Icon(Icons.remove_circle_outline, color: C.primary, size: 28),
+                    padding: EdgeInsets.zero,
+                  ),
+                  const SizedBox(width: 16),
+                  Text(
+                    '$selected',
+                    style: const TextStyle(
+                      fontSize: 40,
+                      fontWeight: FontWeight.w800,
+                      color: C.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  IconButton(
+                    onPressed: selected < 50 ? () => setSt(() => selected++) : null,
+                    icon: const Icon(Icons.add_circle_outline, color: C.primary, size: 28),
+                    padding: EdgeInsets.zero,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              const Text('tâches / jour',
+                  style: TextStyle(fontSize: 13, color: C.textTertiary)),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Annuler'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, selected),
+              child: const Text('Enregistrer'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed == null || confirmed == current || !mounted) return;
+    try {
+      await _api.dio.put('/users/me/daily-goal', queryParameters: {'goal': confirmed});
+      if (mounted) {
+        setState(() {
+          if (_profile != null) _profile!['daily_goal'] = confirmed;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Objectif mis à jour : $confirmed tâches/jour'),
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Erreur lors de la mise à jour'),
+          backgroundColor: C.destructive,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+    }
+  }
+
   Future<void> _enablePush() async {
     setState(() => _pushLoading = true);
     String msg;
@@ -742,6 +823,53 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                             ),
                             const Text('🏆', style: TextStyle(fontSize: 24)),
+                          ],
+                        ),
+                      ),
+                    ],
+                    // Daily goal section
+                    if (_profile != null) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 16),
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: C.surface,
+                          borderRadius: BorderRadius.circular(C.radiusLg),
+                          border: Border.all(color: C.borderLight),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 36, height: 36,
+                              decoration: BoxDecoration(
+                                color: C.primaryLight,
+                                borderRadius: BorderRadius.circular(C.radiusSm),
+                              ),
+                              child: const Icon(Icons.flag_outlined, color: C.primary, size: 18),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('OBJECTIF QUOTIDIEN',
+                                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
+                                          color: C.textTertiary, letterSpacing: 0.2)),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '${(_profile?['daily_goal'] as int?) ?? 5} tâches par jour',
+                                    style: const TextStyle(fontSize: 15, color: C.textPrimary, fontWeight: FontWeight.w500),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined, color: C.textTertiary, size: 18),
+                              onPressed: _showDailyGoalDialog,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                            ),
                           ],
                         ),
                       ),
