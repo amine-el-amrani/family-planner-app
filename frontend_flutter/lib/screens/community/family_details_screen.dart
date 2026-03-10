@@ -418,6 +418,9 @@ class _FamilyDetailsScreenState extends State<FamilyDetailsScreen>
                       family: _family!,
                       avatarImage: _familyAvatarImage(),
                       onPickImage: _pickFamilyImage,
+                      members: _members,
+                      currentUserId: _currentUserId,
+                      familyCreatorId: _family!['created_by_id'] as int?,
                     ),
                     _MembersTab(
                       members: _members,
@@ -514,67 +517,146 @@ class _AboutTab extends StatelessWidget {
   final Map<String, dynamic> family;
   final ImageProvider? avatarImage;
   final VoidCallback onPickImage;
+  final List<Map<String, dynamic>> members;
+  final int? currentUserId;
+  final int? familyCreatorId;
   const _AboutTab({
     required this.family,
     required this.avatarImage,
     required this.onPickImage,
+    required this.members,
+    required this.currentUserId,
+    required this.familyCreatorId,
   });
 
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          GestureDetector(
-            onTap: onPickImage,
-            child: Stack(
+          // Photo + name centered
+          Center(
+            child: Column(
               children: [
-                CircleAvatar(
-                  radius: 52,
-                  backgroundColor: C.primaryLight,
-                  backgroundImage: avatarImage,
-                  child: avatarImage == null
-                      ? const Icon(Icons.group, color: C.primary, size: 40)
-                      : null,
-                ),
-                Positioned(
-                  bottom: 0,
-                  right: 0,
-                  child: Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: C.primary,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: C.background, width: 2),
-                    ),
-                    child: const Icon(
-                      Icons.camera_alt,
-                      color: Colors.white,
-                      size: 14,
-                    ),
+                GestureDetector(
+                  onTap: onPickImage,
+                  child: Stack(
+                    children: [
+                      CircleAvatar(
+                        radius: 72,
+                        backgroundColor: C.primaryLight,
+                        backgroundImage: avatarImage,
+                        child: avatarImage == null
+                            ? const Icon(Icons.group, color: C.primary, size: 56)
+                            : null,
+                      ),
+                      Positioned(
+                        bottom: 4,
+                        right: 4,
+                        child: Container(
+                          padding: const EdgeInsets.all(7),
+                          decoration: BoxDecoration(
+                            color: C.primary,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: C.background, width: 2),
+                          ),
+                          child: const Icon(Icons.camera_alt, color: Colors.white, size: 15),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+                const SizedBox(height: 14),
+                Text(
+                  family['name'] ?? '',
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: C.textPrimary),
+                ),
+                if (family['description'] != null && (family['description'] as String).isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    family['description'],
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 14, color: C.textSecondary, height: 1.4),
+                  ),
+                ],
               ],
             ),
           ),
-          const SizedBox(height: 16),
-          Text(
-            family['name'] ?? '',
-            style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-              color: C.textPrimary,
+
+          // Members section inline
+          if (members.isNotEmpty) ...[
+            const SizedBox(height: 28),
+            Row(
+              children: [
+                const Text('MEMBRES', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: C.textTertiary, letterSpacing: 0.8)),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(color: C.primaryLight, borderRadius: BorderRadius.circular(10)),
+                  child: Text('${members.length}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: C.primary)),
+                ),
+              ],
             ),
-          ),
-          if (family['description'] != null &&
-              (family['description'] as String).isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Text(
-              family['description'],
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 15, color: C.textSecondary),
-            ),
+            const SizedBox(height: 10),
+            ...members.map((m) {
+              final isCreator = m['id'] == familyCreatorId;
+              final avatar = _buildImageProvider(m['profile_image']);
+              final karma = m['karma_total'] as int? ?? 0;
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: C.surface,
+                  borderRadius: BorderRadius.circular(C.radiusBase),
+                  border: Border.all(color: C.borderLight),
+                ),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 20,
+                      backgroundColor: C.primaryLight,
+                      backgroundImage: avatar,
+                      child: avatar == null
+                          ? Text(
+                              (m['full_name'] as String? ?? '?').substring(0, 1).toUpperCase(),
+                              style: const TextStyle(color: C.primary, fontWeight: FontWeight.w700, fontSize: 14))
+                          : null,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(children: [
+                            Text(m['full_name'] ?? '', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: C.textPrimary)),
+                            if (isCreator) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                decoration: BoxDecoration(color: C.primaryLight, borderRadius: BorderRadius.circular(10)),
+                                child: const Text('Admin', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: C.primary)),
+                              ),
+                            ],
+                          ]),
+                          Text(m['email'] ?? '', style: const TextStyle(fontSize: 12, color: C.textSecondary)),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                      decoration: BoxDecoration(color: const Color(0xFFFFF7ED), borderRadius: BorderRadius.circular(10)),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        const Text('⚡', style: TextStyle(fontSize: 11)),
+                        const SizedBox(width: 2),
+                        Text('$karma', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFFD97706))),
+                      ]),
+                    ),
+                  ],
+                ),
+              );
+            }),
           ],
         ],
       ),

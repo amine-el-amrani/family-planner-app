@@ -6,6 +6,22 @@ import '../../core/api_client.dart';
 import '../../providers/auth_provider.dart';
 import '../../theme/app_theme.dart';
 
+
+// ─── Predefined task categories (shared with home_screen) ────────────────
+const _kCategories = [
+  ('Fitness', Color(0xFF22c55e), '🏃'),
+  ('Sport', Color(0xFF3b82f6), '⚽'),
+  ('Courses', Color(0xFFf59e0b), '🛒'),
+  ('Rendez-vous', Color(0xFF8b5cf6), '📅'),
+  ('Ménage', Color(0xFF06b6d4), '🧹'),
+  ('Cuisine', Color(0xFFef4444), '🍳'),
+  ('Famille', Color(0xFFe44232), '👨‍👩‍👧'),
+  ('Travail', Color(0xFF64748b), '💼'),
+  ('Santé', Color(0xFFf43f5e), '❤️'),
+  ('Loisirs', Color(0xFF7c3aed), '🎨'),
+];
+
+
 class AgendaScreen extends StatefulWidget {
   const AgendaScreen({super.key});
 
@@ -886,6 +902,7 @@ class _EditTaskSheetState extends State<_EditTaskSheet> {
   late TextEditingController _titleCtrl;
   late String _priority;
   DateTime? _dueDate;
+  String? _category;
   bool _saving = false;
 
   @override
@@ -894,6 +911,7 @@ class _EditTaskSheetState extends State<_EditTaskSheet> {
     _titleCtrl =
         TextEditingController(text: widget.task['title'] as String? ?? '');
     _priority = widget.task['priority'] as String? ?? 'normale';
+    _category = widget.task['category'] as String?;
     final raw = widget.task['due_date'] as String?;
     if (raw != null) {
       try {
@@ -917,6 +935,8 @@ class _EditTaskSheetState extends State<_EditTaskSheet> {
         'priority': _priority,
         if (_dueDate != null)
           'due_date': DateFormat('yyyy-MM-dd').format(_dueDate!),
+        if (_category != null)
+          'category': _category,
       };
       await widget.onSave(data);
       if (mounted) Navigator.of(context).pop();
@@ -1016,6 +1036,32 @@ class _EditTaskSheetState extends State<_EditTaskSheet> {
                     ? DateFormat('EEE d MMM', 'fr_FR').format(_dueDate!)
                     : 'Date d\'échéance',
               ),
+            ),
+            const SizedBox(height: 12),
+            const Text('Catégorie', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: C.textSecondary)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: _kCategories.map((cat) {
+                final selected = _category == cat.$1;
+                return GestureDetector(
+                  onTap: () => setState(() => _category = selected ? null : cat.$1),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: selected ? cat.$2.withValues(alpha: 0.15) : C.surfaceAlt,
+                      borderRadius: BorderRadius.circular(C.radiusFull),
+                      border: Border.all(color: selected ? cat.$2 : C.border, width: 1.2),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Text(cat.$3, style: const TextStyle(fontSize: 14)),
+                      const SizedBox(width: 4),
+                      Text(cat.$1, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: selected ? cat.$2 : C.textSecondary)),
+                    ]),
+                  ),
+                );
+              }).toList(),
             ),
             const SizedBox(height: 16),
             ElevatedButton(

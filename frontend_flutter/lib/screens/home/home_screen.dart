@@ -9,6 +9,23 @@ import '../../core/api_client.dart';
 import '../../providers/auth_provider.dart';
 import '../../theme/app_theme.dart';
 
+
+// ─── Predefined task categories ────────────────────────────────────────────────
+// (label, color, emoji)
+const _kCategories = [
+  ('Fitness', Color(0xFF22c55e), '🏃'),
+  ('Sport', Color(0xFF3b82f6), '⚽'),
+  ('Courses', Color(0xFFf59e0b), '🛒'),
+  ('Rendez-vous', Color(0xFF8b5cf6), '📅'),
+  ('Ménage', Color(0xFF06b6d4), '🧹'),
+  ('Cuisine', Color(0xFFef4444), '🍳'),
+  ('Famille', Color(0xFFe44232), '👨‍👩‍👧'),
+  ('Travail', Color(0xFF64748b), '💼'),
+  ('Santé', Color(0xFFf43f5e), '❤️'),
+  ('Loisirs', Color(0xFF7c3aed), '🎨'),
+];
+
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -33,6 +50,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final _descCtrl = TextEditingController();
   String _priority = 'normale';
   String _visibility = 'prive';
+  String? _category;
   DateTime? _dueDate;
   int? _familyId;
   List<Map<String, dynamic>> _families = [];
@@ -241,6 +259,7 @@ class _HomeScreenState extends State<HomeScreen> {
             : DateFormat('yyyy-MM-dd').format(_dueDate!),
         'family_id': _familyId,
         'assigned_to_id': _assignedToId,
+        if (_category != null) 'category': _category,
       });
       if (mounted) Navigator.pop(context);
       _titleCtrl.clear();
@@ -251,6 +270,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _dueDate = null;
         _familyId = null;
         _assignedToId = null;
+        _category = null;
       });
       _loadData();
     } catch (_) {
@@ -354,6 +374,8 @@ class _HomeScreenState extends State<HomeScreen> {
         families: _families,
         assignedToId: _assignedToId,
         familyMembers: _familyMembers,
+        category: _category,
+        onCategoryChanged: (v) => setState(() => _category = v),
         onPriorityChanged: (v) => setState(() => _priority = v),
         onVisibilityChanged: (v) => setState(() => _visibility = v),
         onDueDateChanged: (d) => setState(() => _dueDate = d),
@@ -914,7 +936,7 @@ class _TaskTile extends StatelessWidget {
     final familyName = task['family_name'] as String?;
     final assignedName = task['assigned_to_name'] as String?;
     final hasChips =
-        dueDateLabel != null || familyName != null || assignedName != null;
+        task['category'] != null || dueDateLabel != null || familyName != null || assignedName != null;
     final checkColor =
         priorityColor == C.borderLight ? C.primary : priorityColor;
 
@@ -985,6 +1007,8 @@ class _TaskTile extends StatelessWidget {
                       spacing: 5,
                       runSpacing: 4,
                       children: [
+                        if (task['category'] != null)
+                          _InfoChip(label: task['category'] as String),
                         if (dueDateLabel != null)
                           _InfoChip(
                             label: dueDateLabel,
@@ -1324,6 +1348,8 @@ class _AddTaskSheet extends StatefulWidget {
   final List<Map<String, dynamic>> families;
   final int? assignedToId;
   final List<Map<String, dynamic>> familyMembers;
+  final String? category;
+  final ValueChanged<String?> onCategoryChanged;
   final ValueChanged<String> onPriorityChanged;
   final ValueChanged<String> onVisibilityChanged;
   final ValueChanged<DateTime?> onDueDateChanged;
@@ -1341,6 +1367,8 @@ class _AddTaskSheet extends StatefulWidget {
     required this.families,
     required this.assignedToId,
     required this.familyMembers,
+    required this.category,
+    required this.onCategoryChanged,
     required this.onPriorityChanged,
     required this.onVisibilityChanged,
     required this.onDueDateChanged,
@@ -1360,6 +1388,7 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
   DateTime? _dueDate;
   int? _familyId;
   int? _assignedToId;
+  String? _category;
   List<Map<String, dynamic>> _familyMembers = [];
 
   @override
@@ -1370,6 +1399,7 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
     _dueDate = widget.dueDate;
     _familyId = widget.familyId;
     _assignedToId = widget.assignedToId;
+    _category = widget.category;
     _familyMembers = List.from(widget.familyMembers);
   }
 
@@ -1573,6 +1603,37 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
                   },
                 ),
               ],
+              const SizedBox(height: 12),
+              // Catégorie
+              _SheetLabel(label: 'Catégorie (optionnel)'),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: _kCategories.map((cat) {
+                  final selected = _category == cat.$1;
+                  return GestureDetector(
+                    onTap: () {
+                      final next = selected ? null : cat.$1;
+                      setState(() => _category = next);
+                      widget.onCategoryChanged(next);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: selected ? cat.$2.withValues(alpha: 0.15) : C.surfaceAlt,
+                        borderRadius: BorderRadius.circular(C.radiusFull),
+                        border: Border.all(color: selected ? cat.$2 : C.border, width: 1.2),
+                      ),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Text(cat.$3, style: const TextStyle(fontSize: 14)),
+                        const SizedBox(width: 4),
+                        Text(cat.$1, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: selected ? cat.$2 : C.textSecondary)),
+                      ]),
+                    ),
+                  );
+                }).toList(),
+              ),
               const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: widget.onSubmit,
@@ -1860,6 +1921,7 @@ class _HomeEditTaskSheetState extends State<_HomeEditTaskSheet> {
   late TextEditingController _titleCtrl;
   late String _priority;
   DateTime? _dueDate;
+  String? _category;
   bool _saving = false;
 
   @override
@@ -1868,6 +1930,7 @@ class _HomeEditTaskSheetState extends State<_HomeEditTaskSheet> {
     _titleCtrl = TextEditingController(
         text: widget.task['title'] as String? ?? '');
     _priority = widget.task['priority'] as String? ?? 'normale';
+    _category = widget.task['category'] as String?;
     final raw = widget.task['due_date'] as String?;
     if (raw != null) {
       try { _dueDate = DateTime.parse(raw); } catch (_) {}
@@ -1889,6 +1952,8 @@ class _HomeEditTaskSheetState extends State<_HomeEditTaskSheet> {
         'priority': _priority,
         if (_dueDate != null)
           'due_date': DateFormat('yyyy-MM-dd').format(_dueDate!),
+        if (_category != null)
+          'category': _category,
       });
       if (mounted) Navigator.of(context).pop();
     } catch (_) {
@@ -1986,6 +2051,32 @@ class _HomeEditTaskSheetState extends State<_HomeEditTaskSheet> {
                 ),
               ),
             ],
+            const SizedBox(height: 12),
+            const Text('Catégorie', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: C.textSecondary)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: _kCategories.map((cat) {
+                final selected = _category == cat.$1;
+                return GestureDetector(
+                  onTap: () => setState(() => _category = selected ? null : cat.$1),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: selected ? cat.$2.withValues(alpha: 0.15) : C.surfaceAlt,
+                      borderRadius: BorderRadius.circular(C.radiusFull),
+                      border: Border.all(color: selected ? cat.$2 : C.border, width: 1.2),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Text(cat.$3, style: const TextStyle(fontSize: 14)),
+                      const SizedBox(width: 4),
+                      Text(cat.$1, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: selected ? cat.$2 : C.textSecondary)),
+                    ]),
+                  ),
+                );
+              }).toList(),
+            ),
             const SizedBox(height: 20),
             ElevatedButton(
               onPressed: _saving ? null : _save,

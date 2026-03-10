@@ -17,6 +17,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
   final _api = ApiClient();
   List<Map<String, dynamic>> _families = [];
   bool _loading = true;
+  int _pendingInvitCount = 0;
 
   // Create family form
   final _nameCtrl = TextEditingController();
@@ -25,6 +26,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
   void initState() {
     super.initState();
     _fetchFamilies();
+    _fetchInvitCount();
   }
 
   @override
@@ -46,6 +48,17 @@ class _FamilyScreenState extends State<FamilyScreen> {
     } catch (_) {
       setState(() => _loading = false);
     }
+  }
+
+  Future<void> _fetchInvitCount() async {
+    try {
+      final res = await _api.dio.get('/families/invitations');
+      if (mounted) {
+        setState(() {
+          _pendingInvitCount = (res.data as List? ?? []).length;
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _createFamily() async {
@@ -196,31 +209,32 @@ class _FamilyScreenState extends State<FamilyScreen> {
                       ),
                     ),
                   ),
-                  if (_families.isNotEmpty)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      IconButton(
+                        onPressed: () async {
+                          await context.push('/invitations');
+                          _fetchInvitCount();
+                        },
+                        icon: const Icon(Icons.mail_outline, color: C.textSecondary),
                       ),
-                      decoration: BoxDecoration(
-                        color: C.primary,
-                        borderRadius: BorderRadius.circular(C.radiusFull),
-                      ),
-                      child: Text(
-                        '${_families.length}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
+                      if (_pendingInvitCount > 0)
+                        Positioned(
+                          right: 6,
+                          top: 6,
+                          child: Container(
+                            padding: const EdgeInsets.all(3),
+                            decoration: const BoxDecoration(color: C.primary, shape: BoxShape.circle),
+                            constraints: const BoxConstraints(minWidth: 17, minHeight: 17),
+                            child: Text(
+                              '$_pendingInvitCount',
+                              style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                  IconButton(
-                    onPressed: () => context.push('/invitations'),
-                    icon: const Icon(
-                      Icons.mail_outline,
-                      color: C.textSecondary,
-                    ),
+                    ],
                   ),
                 ],
               ),

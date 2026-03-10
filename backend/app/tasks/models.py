@@ -44,4 +44,5 @@ class Task(Base):
     event = relationship("Event", backref="tasks")
     family = relationship("Family", backref="tasks")
     created_by = relationship("User", foreign_keys=[created_by_id])
+    category = Column(String, nullable=True)
     assigned_to = relationship("User", foreign_keys=[assigned_to_id])

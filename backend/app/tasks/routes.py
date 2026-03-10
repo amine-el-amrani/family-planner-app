@@ -33,6 +33,7 @@ def _task_to_dict(task: Task) -> dict:
         "assigned_to_name": task.assigned_to.full_name if task.assigned_to else None,
         "family_name": task.family.name if task.family else None,
         "completed_at": str(task.completed_at) if task.completed_at else None,
+        "category": task.category,
     }
 
 
@@ -76,7 +77,8 @@ def create_task(
         family_id=task_data.family_id,
         event_id=task_data.event_id,
         created_by_id=current_user.id,
-        assigned_to_id=assigned_user.id if assigned_user else None
+        assigned_to_id=assigned_user.id if assigned_user else None,
+        category=task_data.category,
     )
     db.add(task)
 
@@ -197,6 +199,8 @@ def update_task(
         content_changed = True
     if task_data.assigned_to_id is not None:
         task.assigned_to_id = task_data.assigned_to_id
+    if task_data.category is not None:
+        task.category = task_data.category
     if task_data.family_id is not None:
         task.family_id = task_data.family_id
 

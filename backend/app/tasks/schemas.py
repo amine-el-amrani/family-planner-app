@@ -30,6 +30,7 @@ class TaskCreate(BaseModel):
     family_id: Optional[int] = None
     event_id: Optional[int] = None
     assigned_to_id: Optional[int] = None
+    category: Optional[str] = None
 
 
 class TaskUpdate(BaseModel):
@@ -41,6 +42,7 @@ class TaskUpdate(BaseModel):
     priority: Optional[TaskPriorityEnum] = None
     assigned_to_id: Optional[int] = None
     family_id: Optional[int] = None
+    category: Optional[str] = None
 
 
 class TaskOut(BaseModel):
@@ -58,6 +60,7 @@ class TaskOut(BaseModel):
     assigned_to_id: Optional[int] = None
     assigned_to_name: Optional[str] = None
     family_name: Optional[str] = None
+    category: Optional[str] = None
     completed_at: Optional[datetime] = None
 
     class Config:
