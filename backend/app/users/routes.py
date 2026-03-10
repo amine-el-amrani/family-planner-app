@@ -52,8 +52,10 @@ def get_karma(
 ):
     """Retourne les données karma : total, objectif quotidien, tâches du jour, tâches de la semaine."""
     from app.tasks.models import Task, TaskStatus
+    # Force reload to avoid SQLAlchemy identity-map staleness
+    db.refresh(current_user)
 
-    today = datetime.now().date()
+    today = datetime.utcnow().date()
     week_start = today - timedelta(days=today.weekday())  # lundi
 
     today_start = datetime.combine(today, datetime.min.time())
