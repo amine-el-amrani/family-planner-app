@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../theme/app_theme.dart';
 
 class AppShell extends StatelessWidget {
   final StatefulNavigationShell navigationShell;
@@ -9,40 +10,59 @@ class AppShell extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       body: navigationShell,
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: navigationShell.currentIndex,
-        onTap: (i) => navigationShell.goBranch(
-          i,
-          // Re-tap active tab scrolls to top (like native apps)
-          initialLocation: i == navigationShell.currentIndex,
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          color: C.surface,
+          border: Border(top: BorderSide(color: C.borderLight, width: 0.8)),
+          boxShadow: [
+            BoxShadow(
+              color: Color(0x0F000000), // ~6% black
+              blurRadius: 12,
+              offset: Offset(0, -3),
+            ),
+          ],
         ),
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.today_outlined),
-            activeIcon: Icon(Icons.today),
-            label: 'Auj.',
+        child: NavigationBar(
+          selectedIndex: navigationShell.currentIndex,
+          onDestinationSelected: (i) => navigationShell.goBranch(
+            i,
+            initialLocation: i == navigationShell.currentIndex,
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_today_outlined),
-            activeIcon: Icon(Icons.calendar_today),
-            label: 'Agenda',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.shopping_cart_outlined),
-            activeIcon: Icon(Icons.shopping_cart),
-            label: 'Courses',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.group_outlined),
-            activeIcon: Icon(Icons.group),
-            label: 'Familles',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.account_circle_outlined),
-            activeIcon: Icon(Icons.account_circle),
-            label: 'Profil',
-          ),
-        ],
+          backgroundColor: Colors.transparent,
+          indicatorColor: C.primaryLight,
+          surfaceTintColor: Colors.transparent,
+          shadowColor: Colors.transparent,
+          elevation: 0,
+          height: 64,
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.today_outlined, color: C.textTertiary),
+              selectedIcon: Icon(Icons.today, color: C.primary),
+              label: 'Auj.',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.calendar_today_outlined, color: C.textTertiary),
+              selectedIcon: Icon(Icons.calendar_today, color: C.primary),
+              label: 'Agenda',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.shopping_cart_outlined, color: C.textTertiary),
+              selectedIcon: Icon(Icons.shopping_cart, color: C.primary),
+              label: 'Courses',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.group_outlined, color: C.textTertiary),
+              selectedIcon: Icon(Icons.group, color: C.primary),
+              label: 'Familles',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.person_outline, color: C.textTertiary),
+              selectedIcon: Icon(Icons.person, color: C.primary),
+              label: 'Profil',
+            ),
+          ],
+        ),
       ),
     );
   }

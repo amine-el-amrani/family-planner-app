@@ -129,10 +129,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               : RefreshIndicator(
                   onRefresh: _loadNotifications,
                   color: C.primary,
-                  child: ListView.separated(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                     itemCount: _notifications.length,
-                    separatorBuilder: (_, __) =>
-                        const Divider(height: 1, indent: 64),
                     itemBuilder: (ctx, i) {
                       final notif = _notifications[i];
                       return _NotificationTile(
@@ -172,48 +171,108 @@ class _NotificationTile extends StatelessWidget {
     }
   }
 
+  Color _iconBg() {
+    switch (notification['related_entity_type']) {
+      case 'task':
+        return C.blueLight;
+      case 'event':
+        return const Color(0xFFF3F0FF);
+      case 'family':
+        return const Color(0xFFECFDF5);
+      case 'invitation':
+        return const Color(0xFFFFF7ED);
+      default:
+        return C.primaryLight;
+    }
+  }
+
+  Color _iconColor() {
+    switch (notification['related_entity_type']) {
+      case 'task':
+        return C.blue;
+      case 'event':
+        return C.purple;
+      case 'family':
+        return C.green;
+      case 'invitation':
+        return C.orange;
+      default:
+        return C.primary;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Dismissible(
-      key: Key('notif_${notification['id']}'),
+      key: Key('notif_${notification["id"]}'),
       direction: DismissDirection.endToStart,
       onDismissed: (_) => onDismiss(),
       background: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 20),
-        color: C.destructive,
+        decoration: BoxDecoration(
+          color: C.destructive,
+          borderRadius: BorderRadius.circular(C.radiusLg),
+        ),
         child: const Icon(Icons.delete_outline, color: Colors.white),
       ),
-      child: ListTile(
+      child: GestureDetector(
         onTap: onDismiss,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        leading: Container(
-          width: 44,
-          height: 44,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: C.primaryLight,
-            borderRadius: BorderRadius.circular(C.radiusBase),
+            color: C.surface,
+            borderRadius: BorderRadius.circular(C.radiusLg),
+            border: Border.all(color: C.borderLight),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x0A000000),
+                blurRadius: 6,
+                offset: Offset(0, 2),
+              ),
+            ],
           ),
-          child: Icon(_icon(), color: C.primary, size: 22),
-        ),
-        title: Text(
-          notification['message'] ?? '',
-          style: const TextStyle(
-            fontSize: 14,
-            color: C.textPrimary,
-            fontWeight: FontWeight.w500,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: _iconBg(),
+                  borderRadius: BorderRadius.circular(C.radiusBase),
+                ),
+                child: Icon(_icon(), color: _iconColor(), size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      notification['message'] ?? '',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: C.textPrimary,
+                        fontWeight: FontWeight.w500,
+                        height: 1.4,
+                      ),
+                    ),
+                    if (notification['created_at'] != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        _formatDate(notification['created_at']),
+                        style: const TextStyle(fontSize: 12, color: C.textTertiary),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(Icons.chevron_right, color: C.textTertiary, size: 18),
+            ],
           ),
-        ),
-        subtitle: notification['created_at'] != null
-            ? Text(
-                _formatDate(notification['created_at']),
-                style: const TextStyle(fontSize: 12, color: C.textTertiary),
-              )
-            : null,
-        trailing: const Icon(
-          Icons.chevron_right,
-          color: C.textTertiary,
-          size: 18,
         ),
       ),
     );

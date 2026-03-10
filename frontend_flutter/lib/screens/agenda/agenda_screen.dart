@@ -181,6 +181,22 @@ class _AgendaScreenState extends State<AgendaScreen> {
     return result ?? false;
   }
 
+
+  void _showAddForDay() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _QuickAddForDaySheet(
+        selectedDay: _selectedDay,
+        onCreated: () {
+          _loadDayData(_selectedDay);
+          _loadMonthData(_focusedDay);
+        },
+      ),
+    );
+  }
+
   void _showEditTask(Map<String, dynamic> task) {
     showModalBottomSheet(
       context: context,
@@ -226,6 +242,15 @@ class _AgendaScreenState extends State<AgendaScreen> {
     );
   }
 
+  void _showTaskDetail(Map<String, dynamic> task) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _TaskDetailSheet(task: task),
+    );
+  }
+
   List<dynamic> _getMarkersForDay(DateTime day) {
     return _markerMap[_normalizeDate(day)] ?? [];
   }
@@ -234,6 +259,11 @@ class _AgendaScreenState extends State<AgendaScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: C.background,
+      floatingActionButton: FloatingActionButton(
+        onPressed: _showAddForDay,
+        backgroundColor: C.primary,
+        child: const Icon(Icons.add, color: Colors.white),
+      ),
       body: SafeArea(
         child: Column(
           children: [
@@ -355,7 +385,10 @@ class _AgendaScreenState extends State<AgendaScreen> {
                     )
                   : _dayTasks.isEmpty && _dayEvents.isEmpty
                       ? _EmptyDay()
-                      : ListView(
+                      : RefreshIndicator(
+                          onRefresh: () => _loadDayData(_selectedDay),
+                          color: C.primary,
+                          child: ListView(
                           padding: const EdgeInsets.only(bottom: 20),
                           children: [
                             if (_dayEvents.isNotEmpty) ...[
@@ -382,9 +415,11 @@ class _AgendaScreenState extends State<AgendaScreen> {
                                     onDelete: () =>
                                         _deleteTask(t['id'] as int),
                                     onEdit: () => _showEditTask(t),
+                                    onTap: () => _showTaskDetail(t),
                                   )),
                             ],
                           ],
+                        ),
                         ),
             ),
           ],
@@ -539,21 +574,32 @@ class _EventItemState extends State<_EventItem> {
                   ),
                 ),
                 if (widget.isCreator)
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.edit_outlined, color: C.textSecondary, size: 19),
-                        onPressed: widget.onEdit,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert, color: C.textTertiary, size: 18),
+                    padding: EdgeInsets.zero,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(C.radiusBase),
+                    ),
+                    onSelected: (val) {
+                      if (val == 'edit') widget.onEdit();
+                      if (val == 'delete') widget.onDelete();
+                    },
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(
+                        value: 'edit',
+                        child: Row(children: [
+                          Icon(Icons.edit_outlined, size: 16, color: C.textSecondary),
+                          SizedBox(width: 8),
+                          Text('Modifier'),
+                        ]),
                       ),
-                      const SizedBox(width: 4),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline, color: C.textTertiary, size: 19),
-                        onPressed: widget.onDelete,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
+                      const PopupMenuItem(
+                        value: 'delete',
+                        child: Row(children: [
+                          Icon(Icons.delete_outline, size: 16, color: C.destructive),
+                          SizedBox(width: 8),
+                          Text('Supprimer', style: TextStyle(color: C.destructive)),
+                        ]),
                       ),
                     ],
                   ),
@@ -696,96 +742,130 @@ class _TaskItem extends StatelessWidget {
   final VoidCallback onToggle;
   final VoidCallback onDelete;
   final VoidCallback onEdit;
+  final VoidCallback? onTap;
   const _TaskItem({
     required this.task,
     required this.isCreator,
     required this.onToggle,
     required this.onDelete,
     required this.onEdit,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final isDone = task['status'] == 'fait';
     final priority = task['priority'] ?? 'normale';
-    final borderColor = priority == 'urgente'
-        ? const Color(0xFFef4444)
+    final priorityColor = priority == 'urgente'
+        ? C.priorityUrgente
         : priority == 'haute'
-            ? const Color(0xFFf97316)
+            ? C.priorityHaute
             : C.borderLight;
+    final checkColor = priorityColor == C.borderLight ? C.primary : priorityColor;
+    final familyName = task['family_name'] as String?;
+    final assignedName = task['assigned_to_name'] as String?;
 
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
-      decoration: BoxDecoration(
-        color: C.surface,
-        borderRadius: BorderRadius.circular(C.radiusBase),
-        border: Border(left: BorderSide(color: borderColor, width: 3)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 4,
-          ),
-        ],
-      ),
-      child: ListTile(
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-        leading: GestureDetector(
-          onTap: onToggle,
-          child: Container(
-            width: 24,
-            height: 24,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isDone ? C.primary : Colors.transparent,
-              border: Border.all(
-                color: isDone ? C.primary : C.border,
-                width: 2,
-              ),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
+        decoration: BoxDecoration(
+          color: C.surface,
+          borderRadius: BorderRadius.circular(C.radiusBase),
+          border: Border(
+            left: BorderSide(
+              color: isDone ? C.borderLight : priorityColor,
+              width: 3,
             ),
-            child: isDone
-                ? const Icon(Icons.check, color: Colors.white, size: 14)
-                : null,
+          ),
+          boxShadow: const [
+            BoxShadow(color: Color(0x0A000000), blurRadius: 4, offset: Offset(0, 1)),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              GestureDetector(
+                onTap: onToggle,
+                child: Container(
+                  width: 22,
+                  height: 22,
+                  margin: const EdgeInsets.only(top: 1),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isDone ? checkColor : Colors.transparent,
+                    border: Border.all(color: checkColor, width: 2),
+                  ),
+                  child: isDone
+                      ? const Icon(Icons.check, color: Colors.white, size: 13)
+                      : null,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      task['title'] ?? '',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: isDone ? C.textTertiary : C.textPrimary,
+                        decoration: isDone ? TextDecoration.lineThrough : null,
+                      ),
+                    ),
+                    if (familyName != null || assignedName != null) ...[
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 5,
+                        runSpacing: 4,
+                        children: [
+                          if (familyName != null)
+                            _AgendaChip(label: familyName, icon: Icons.group_outlined),
+                          if (assignedName != null)
+                            _AgendaChip(label: assignedName, icon: Icons.person_outline),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (isCreator)
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert, color: C.textTertiary, size: 18),
+                  padding: EdgeInsets.zero,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(C.radiusBase),
+                  ),
+                  onSelected: (val) {
+                    if (val == 'edit') onEdit();
+                    if (val == 'delete') onDelete();
+                  },
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(
+                      value: 'edit',
+                      child: Row(children: [
+                        Icon(Icons.edit_outlined, size: 16, color: C.textSecondary),
+                        SizedBox(width: 8),
+                        Text('Modifier'),
+                      ]),
+                    ),
+                    const PopupMenuItem(
+                      value: 'delete',
+                      child: Row(children: [
+                        Icon(Icons.delete_outline, size: 16, color: C.destructive),
+                        SizedBox(width: 8),
+                        Text('Supprimer', style: TextStyle(color: C.destructive)),
+                      ]),
+                    ),
+                  ],
+                ),
+            ],
           ),
         ),
-        title: Text(
-          task['title'] ?? '',
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w500,
-            color: isDone ? C.textTertiary : C.textPrimary,
-            decoration: isDone ? TextDecoration.lineThrough : null,
-          ),
-        ),
-        subtitle: task['family_name'] != null
-            ? Text(
-                task['family_name'],
-                style:
-                    const TextStyle(fontSize: 12, color: C.textSecondary),
-              )
-            : null,
-        trailing: isCreator
-            ? Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.edit_outlined,
-                        color: C.textSecondary, size: 19),
-                    onPressed: onEdit,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-                  const SizedBox(width: 4),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline,
-                        color: C.textTertiary, size: 19),
-                    onPressed: onDelete,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-                ],
-              )
-            : null,
       ),
     );
   }
@@ -1306,6 +1386,530 @@ class _EmptyDay extends StatelessWidget {
             style: TextStyle(fontSize: 15, color: C.textSecondary),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─── Task detail sheet ────────────────────────────────────────────────────────
+
+class _TaskDetailSheet extends StatelessWidget {
+  final Map<String, dynamic> task;
+  const _TaskDetailSheet({required this.task});
+
+  @override
+  Widget build(BuildContext context) {
+    final priority = task['priority'] ?? 'normale';
+    final priorityColor = priority == 'urgente'
+        ? C.priorityUrgente
+        : priority == 'haute'
+            ? C.priorityHaute
+            : C.textTertiary;
+    final priorityLabel = priority == 'urgente'
+        ? 'Urgente'
+        : priority == 'haute'
+            ? 'Haute'
+            : 'Normale';
+    final isDone = task['status'] == 'fait';
+    final dueDate = task['due_date'] as String?;
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: C.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: C.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Status + priority chips
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: isDone ? C.primaryLight : C.surfaceAlt,
+                    borderRadius: BorderRadius.circular(C.radiusFull),
+                    border: Border.all(color: isDone ? C.primary : C.border),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isDone ? Icons.check_circle : Icons.radio_button_unchecked,
+                        size: 12,
+                        color: isDone ? C.primary : C.textSecondary,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        isDone ? 'Terminée' : 'En cours',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: isDone ? C.primary : C.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: priorityColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(C.radiusFull),
+                  ),
+                  child: Text(
+                    priorityLabel,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: priorityColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            // Title
+            Text(
+              task['title'] ?? '',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: isDone ? C.textSecondary : C.textPrimary,
+                decoration: isDone ? TextDecoration.lineThrough : null,
+              ),
+            ),
+            if (task['description'] != null &&
+                (task['description'] as String).isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(
+                task['description'] as String,
+                style: const TextStyle(
+                    fontSize: 14, color: C.textSecondary, height: 1.4),
+              ),
+            ],
+            const SizedBox(height: 14),
+            if (dueDate != null) ...[
+              _AgendaDetailRow(
+                icon: Icons.calendar_today_outlined,
+                text: () {
+                  try {
+                    final d = DateTime.parse(dueDate);
+                    return DateFormat('EEE d MMMM yyyy', 'fr_FR').format(d);
+                  } catch (_) {
+                    return dueDate;
+                  }
+                }(),
+              ),
+            ],
+            if (task['family_name'] != null) ...[
+              const SizedBox(height: 8),
+              _AgendaDetailRow(
+                icon: Icons.group_outlined,
+                text: task['family_name'] as String,
+              ),
+            ],
+            if (task['assigned_to_name'] != null) ...[
+              const SizedBox(height: 8),
+              _AgendaDetailRow(
+                icon: Icons.person_outline,
+                text: 'Assignée à ${task['assigned_to_name']}',
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AgendaDetailRow extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  const _AgendaDetailRow({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 14, color: C.textSecondary),
+        const SizedBox(width: 6),
+        Text(text, style: const TextStyle(fontSize: 14, color: C.textSecondary)),
+      ],
+    );
+  }
+}
+
+class _AgendaChip extends StatelessWidget {
+  final String label;
+  final IconData? icon;
+  const _AgendaChip({required this.label, this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: C.textTertiary.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(C.radiusFull),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 10, color: C.textTertiary),
+            const SizedBox(width: 3),
+          ],
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: C.textTertiary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Quick Add For Day Sheet ──────────────────────────────────────────────────
+
+class _QuickAddForDaySheet extends StatefulWidget {
+  final DateTime selectedDay;
+  final VoidCallback onCreated;
+  const _QuickAddForDaySheet({required this.selectedDay, required this.onCreated});
+
+  @override
+  State<_QuickAddForDaySheet> createState() => _QuickAddForDaySheetState();
+}
+
+class _QuickAddForDaySheetState extends State<_QuickAddForDaySheet> {
+  final _api = ApiClient();
+  final _titleCtrl = TextEditingController();
+  List<Map<String, dynamic>> _families = [];
+  int? _familyId;
+  String _type = 'task';
+  String _priority = 'normale';
+  TimeOfDay? _eventTime;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchFamilies();
+  }
+
+  Future<void> _fetchFamilies() async {
+    try {
+      final res = await _api.dio.get('/families/');
+      if (mounted) {
+        setState(() {
+          _families = List<Map<String, dynamic>>.from(
+            (res.data as List).map((e) => Map<String, dynamic>.from(e)),
+          );
+          if (_families.isNotEmpty) _familyId = _families.first['id'] as int;
+        });
+      }
+    } catch (_) {}
+  }
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_titleCtrl.text.trim().isEmpty) return;
+    setState(() => _saving = true);
+    final dateStr = DateFormat('yyyy-MM-dd').format(widget.selectedDay);
+    try {
+      if (_type == 'task') {
+        await _api.dio.post('/tasks/', data: {
+          'title': _titleCtrl.text.trim(),
+          'priority': _priority,
+          'due_date': dateStr,
+          'visibility': _familyId != null ? 'famille' : 'prive',
+          if (_familyId != null) 'family_id': _familyId,
+        });
+      } else {
+        if (_familyId == null) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Choisissez une famille pour cet événement'),
+            behavior: SnackBarBehavior.floating,
+          ));
+          setState(() => _saving = false);
+          return;
+        }
+        String? timeStr;
+        if (_eventTime != null) {
+          final h = _eventTime!.hour.toString().padLeft(2, '0');
+          final m = _eventTime!.minute.toString().padLeft(2, '0');
+          timeStr = '$h:$m';
+        }
+        await _api.dio.post('/events/', data: {
+          'title': _titleCtrl.text.trim(),
+          'event_date': dateStr,
+          'family_id': _familyId,
+          if (timeStr != null) 'time_from': timeStr,
+        });
+      }
+      if (mounted) {
+        Navigator.pop(context);
+        widget.onCreated();
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Erreur lors de la création'),
+          backgroundColor: C.destructive,
+          behavior: SnackBarBehavior.floating,
+        ));
+        setState(() => _saving = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: C.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                    color: C.border, borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              DateFormat('EEEE d MMMM', 'fr_FR').format(widget.selectedDay),
+              style: const TextStyle(
+                  fontSize: 13,
+                  color: C.textSecondary,
+                  fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _TypeToggleButton(
+                    label: 'Tâche',
+                    icon: Icons.check_circle_outline,
+                    isSelected: _type == 'task',
+                    color: C.primary,
+                    onTap: () => setState(() => _type = 'task'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _TypeToggleButton(
+                    label: 'Événement',
+                    icon: Icons.event_outlined,
+                    isSelected: _type == 'event',
+                    color: C.blue,
+                    onTap: () => setState(() => _type = 'event'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: _titleCtrl,
+              autofocus: true,
+              decoration: InputDecoration(
+                hintText: _type == 'task'
+                    ? 'Titre de la tâche'
+                    : "Titre de l'événement",
+              ),
+            ),
+            if (_type == 'task') ...[
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final p in [
+                    ('normale', 'Normale'),
+                    ('haute', 'Haute'),
+                    ('urgente', 'Urgente'),
+                  ])
+                    GestureDetector(
+                      onTap: () => setState(() => _priority = p.$1),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: _priority == p.$1 ? C.primary : C.surfaceAlt,
+                          borderRadius: BorderRadius.circular(C.radiusFull),
+                          border: Border.all(
+                            color: _priority == p.$1 ? C.primary : C.border,
+                          ),
+                        ),
+                        child: Text(
+                          p.$2,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: _priority == p.$1
+                                ? Colors.white
+                                : C.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+            if (_type == 'event') ...[
+              const SizedBox(height: 12),
+              GestureDetector(
+                onTap: () async {
+                  final t = await showTimePicker(
+                    context: context,
+                    initialTime: _eventTime ?? TimeOfDay.now(),
+                  );
+                  if (t != null) setState(() => _eventTime = t);
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: C.surfaceAlt,
+                    borderRadius: BorderRadius.circular(C.radiusBase),
+                    border: Border.all(color: C.border),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.access_time_outlined,
+                          size: 16, color: C.textSecondary),
+                      const SizedBox(width: 8),
+                      Text(
+                        _eventTime == null
+                            ? 'Toute la journée'
+                            : _eventTime!.format(context),
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: _eventTime == null
+                              ? C.textPlaceholder
+                              : C.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            if (_families.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              DropdownButtonFormField<int>(
+                value: _familyId,
+                decoration: InputDecoration(
+                  hintText:
+                      _type == 'task' ? 'Famille (optionnel)' : 'Famille *',
+                ),
+                items: _families
+                    .map((f) => DropdownMenuItem<int>(
+                          value: f['id'] as int,
+                          child: Text(f['name'] ?? ''),
+                        ))
+                    .toList(),
+                onChanged: (v) => setState(() => _familyId = v),
+              ),
+            ],
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: _saving ? null : _submit,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _type == 'task' ? C.primary : C.blue,
+              ),
+              child: _saving
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white))
+                  : Text(_type == 'task'
+                      ? 'Ajouter la tâche'
+                      : "Créer l'événement"),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TypeToggleButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool isSelected;
+  final Color color;
+  final VoidCallback onTap;
+  const _TypeToggleButton({
+    required this.label,
+    required this.icon,
+    required this.isSelected,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected ? color.withValues(alpha: 0.1) : C.surfaceAlt,
+          borderRadius: BorderRadius.circular(C.radiusBase),
+          border: Border.all(
+              color: isSelected ? color : C.border, width: 1.5),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon,
+                size: 16,
+                color: isSelected ? color : C.textSecondary),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: isSelected ? color : C.textSecondary,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

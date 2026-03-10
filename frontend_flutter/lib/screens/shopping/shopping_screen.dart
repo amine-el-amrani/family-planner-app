@@ -362,11 +362,9 @@ class _ShoppingScreenState extends State<ShoppingScreen> {
                       : RefreshIndicator(
                           onRefresh: _fetchLists,
                           color: C.primary,
-                          child: ListView.separated(
-                            padding: const EdgeInsets.only(bottom: 100),
+                          child: ListView.builder(
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
                             itemCount: _lists.length,
-                            separatorBuilder: (_, __) =>
-                                const Divider(height: 1),
                             itemBuilder: (ctx, i) {
                               final list = _lists[i];
                               final totalItems = list['item_count'] ?? 0;
@@ -374,71 +372,116 @@ class _ShoppingScreenState extends State<ShoppingScreen> {
                               final progress = totalItems > 0
                                   ? checkedItems / totalItems
                                   : 0.0;
-                              return ListTile(
+                              final isComplete = totalItems > 0 && checkedItems == totalItems;
+                              return GestureDetector(
                                 onTap: () => _loadItems(list['id']),
-                                contentPadding:
-                                    const EdgeInsets.symmetric(
-                                  horizontal: 20,
-                                  vertical: 8,
-                                ),
-                                leading: Container(
-                                  width: 44,
-                                  height: 44,
+                                child: Container(
+                                  margin: const EdgeInsets.only(bottom: 10),
+                                  padding: const EdgeInsets.all(14),
                                   decoration: BoxDecoration(
-                                    color: C.primaryLight,
-                                    borderRadius:
-                                        BorderRadius.circular(C.radiusBase),
-                                  ),
-                                  child: const Icon(
-                                    Icons.shopping_cart_outlined,
-                                    color: C.primary,
-                                    size: 22,
-                                  ),
-                                ),
-                                title: Text(
-                                  list['name'] ?? '',
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: C.textPrimary,
-                                  ),
-                                ),
-                                subtitle: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
-                                  children: [
-                                    if (list['family_name'] != null)
-                                      Text(
-                                        list['family_name'],
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          color: C.textSecondary,
-                                        ),
-                                      ),
-                                    if (totalItems > 0) ...[
-                                      const SizedBox(height: 4),
-                                      LinearProgressIndicator(
-                                        value: progress.toDouble(),
-                                        backgroundColor: C.borderLight,
-                                        valueColor:
-                                            const AlwaysStoppedAnimation<
-                                                Color>(C.primary),
-                                        minHeight: 3,
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        '$checkedItems/$totalItems',
-                                        style: const TextStyle(
-                                          fontSize: 11,
-                                          color: C.textTertiary,
-                                        ),
+                                    color: C.surface,
+                                    borderRadius: BorderRadius.circular(C.radiusLg),
+                                    border: Border.all(color: C.borderLight),
+                                    boxShadow: const [
+                                      BoxShadow(
+                                        color: Color(0x0A000000),
+                                        blurRadius: 6,
+                                        offset: Offset(0, 2),
                                       ),
                                     ],
-                                  ],
-                                ),
-                                trailing: const Icon(
-                                  Icons.chevron_right,
-                                  color: C.textTertiary,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 46,
+                                        height: 46,
+                                        decoration: BoxDecoration(
+                                          color: isComplete
+                                              ? const Color(0xFFECFDF5)
+                                              : C.primaryLight,
+                                          borderRadius: BorderRadius.circular(C.radiusBase),
+                                        ),
+                                        child: Icon(
+                                          isComplete
+                                              ? Icons.check_circle
+                                              : Icons.shopping_cart_outlined,
+                                          color: isComplete
+                                              ? const Color(0xFF059669)
+                                              : C.primary,
+                                          size: 22,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 14),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              list['name'] ?? '',
+                                              style: const TextStyle(
+                                                fontSize: 15,
+                                                fontWeight: FontWeight.w600,
+                                                color: C.textPrimary,
+                                              ),
+                                            ),
+                                            if (list['family_name'] != null) ...[
+                                              const SizedBox(height: 2),
+                                              Row(
+                                                children: [
+                                                  const Icon(Icons.group_outlined,
+                                                      size: 11, color: C.textTertiary),
+                                                  const SizedBox(width: 3),
+                                                  Text(
+                                                    list['family_name'],
+                                                    style: const TextStyle(
+                                                        fontSize: 12, color: C.textTertiary),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                            if (totalItems > 0) ...[
+                                              const SizedBox(height: 6),
+                                              Row(
+                                                children: [
+                                                  Expanded(
+                                                    child: ClipRRect(
+                                                      borderRadius: BorderRadius.circular(4),
+                                                      child: LinearProgressIndicator(
+                                                        value: progress.toDouble(),
+                                                        backgroundColor: C.borderLight,
+                                                        valueColor: AlwaysStoppedAnimation<Color>(
+                                                          isComplete
+                                                              ? const Color(0xFF059669)
+                                                              : C.primary,
+                                                        ),
+                                                        minHeight: 4,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  Text(
+                                                    '$checkedItems/$totalItems',
+                                                    style: const TextStyle(
+                                                      fontSize: 11,
+                                                      color: C.textTertiary,
+                                                      fontWeight: FontWeight.w600,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ] else ...[
+                                              const SizedBox(height: 2),
+                                              const Text('Liste vide',
+                                                  style: TextStyle(
+                                                      fontSize: 12, color: C.textTertiary)),
+                                            ],
+                                          ],
+                                        ),
+                                      ),
+                                      const Icon(Icons.chevron_right,
+                                          color: C.textTertiary, size: 20),
+                                    ],
+                                  ),
                                 ),
                               );
                             },

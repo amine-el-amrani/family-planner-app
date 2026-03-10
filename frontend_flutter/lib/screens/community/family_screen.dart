@@ -237,61 +237,78 @@ class _FamilyScreenState extends State<FamilyScreen> {
                       : RefreshIndicator(
                           onRefresh: _fetchFamilies,
                           color: C.primary,
-                          child: ListView.separated(
-                            padding: const EdgeInsets.only(bottom: 100),
+                          child: ListView.builder(
+                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
                             itemCount: _families.length,
-                            separatorBuilder: (_, __) => const Divider(
-                              height: 1,
-                              indent: 72,
-                            ),
                             itemBuilder: (ctx, i) {
                               final family = _families[i];
                               final avatarImg = _avatarImage(family);
-                              return ListTile(
-                                onTap: () =>
-                                    context.push('/families/${family['id']}'),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 20,
-                                  vertical: 6,
-                                ),
-                                leading: avatarImg != null
-                                    ? CircleAvatar(
-                                        radius: 22,
-                                        backgroundImage: avatarImg,
-                                        backgroundColor: C.primaryLight,
-                                      )
-                                    : CircleAvatar(
-                                        radius: 22,
-                                        backgroundColor: C.primaryLight,
-                                        child: const Icon(
-                                          Icons.group,
-                                          color: C.primary,
-                                          size: 22,
+                              return GestureDetector(
+                                onTap: () => context.push('/families/${family['id']}'),
+                                child: Container(
+                                  margin: const EdgeInsets.only(bottom: 10),
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: C.surface,
+                                    borderRadius: BorderRadius.circular(C.radiusLg),
+                                    border: Border.all(color: C.borderLight),
+                                    boxShadow: const [
+                                      BoxShadow(
+                                        color: Color(0x0A000000),
+                                        blurRadius: 6,
+                                        offset: Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      avatarImg != null
+                                          ? CircleAvatar(
+                                              radius: 24,
+                                              backgroundImage: avatarImg,
+                                              backgroundColor: C.primaryLight,
+                                            )
+                                          : Container(
+                                              width: 48,
+                                              height: 48,
+                                              decoration: BoxDecoration(
+                                                color: C.primaryLight,
+                                                borderRadius: BorderRadius.circular(C.radiusBase),
+                                              ),
+                                              child: const Icon(Icons.group, color: C.primary, size: 24),
+                                            ),
+                                      const SizedBox(width: 14),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              family['name'] ?? '',
+                                              style: const TextStyle(
+                                                fontSize: 15,
+                                                fontWeight: FontWeight.w600,
+                                                color: C.textPrimary,
+                                              ),
+                                            ),
+                                            if (family['description'] != null &&
+                                                (family['description'] as String).isNotEmpty) ...[
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                family['description'],
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontSize: 13,
+                                                  color: C.textSecondary,
+                                                ),
+                                              ),
+                                            ],
+                                          ],
                                         ),
                                       ),
-                                title: Text(
-                                  family['name'] ?? '',
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: C.textPrimary,
+                                      const Icon(Icons.chevron_right, color: C.textTertiary, size: 20),
+                                    ],
                                   ),
-                                ),
-                                subtitle: family['description'] != null
-                                    ? Text(
-                                        family['description'],
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontSize: 13,
-                                          color: C.textSecondary,
-                                        ),
-                                      )
-                                    : null,
-                                trailing: const Icon(
-                                  Icons.chevron_right,
-                                  color: C.textTertiary,
-                                  size: 20,
                                 ),
                               );
                             },

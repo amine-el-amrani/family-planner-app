@@ -737,58 +737,88 @@ class _MembersTab extends StatelessWidget {
         ),
       );
     }
-    return ListView.separated(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
       itemCount: members.length,
-      separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
       itemBuilder: (ctx, i) {
         final m = members[i];
         final karma = m['karma_total'] as int? ?? 0;
-        return ListTile(
+        final isCreator = m['id'] == familyCreatorId;
+        final avatar = _buildImageProvider(m['profile_image']);
+        return GestureDetector(
           onTap: () => _showMemberModal(context, m),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-          leading: CircleAvatar(
-            backgroundColor: C.primaryLight,
-            backgroundImage: _buildImageProvider(m['profile_image']),
-            child: m['profile_image'] == null
-                ? Text(
-                    (m['full_name'] as String? ?? '?')
-                        .substring(0, 1)
-                        .toUpperCase(),
-                    style: const TextStyle(
-                      color: C.primary,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  )
-                : null,
-          ),
-          title: Text(
-            m['full_name'] ?? '',
-            style: const TextStyle(
-              fontWeight: FontWeight.w600,
-              color: C.textPrimary,
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: C.surface,
+              borderRadius: BorderRadius.circular(C.radiusLg),
+              border: Border.all(color: C.borderLight),
+              boxShadow: const [
+                BoxShadow(color: Color(0x0A000000), blurRadius: 6, offset: Offset(0, 2)),
+              ],
             ),
-          ),
-          subtitle: Text(
-            m['email'] ?? '',
-            style: const TextStyle(fontSize: 13, color: C.textSecondary),
-          ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('⚡', style: TextStyle(fontSize: 13)),
-              const SizedBox(width: 2),
-              Text(
-                '$karma',
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: C.textSecondary,
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 22,
+                  backgroundColor: C.primaryLight,
+                  backgroundImage: avatar,
+                  child: avatar == null
+                      ? Text(
+                          (m['full_name'] as String? ?? '?').substring(0, 1).toUpperCase(),
+                          style: const TextStyle(color: C.primary, fontWeight: FontWeight.w700, fontSize: 16),
+                        )
+                      : null,
                 ),
-              ),
-              const SizedBox(width: 4),
-              const Icon(Icons.chevron_right, color: C.textTertiary, size: 18),
-            ],
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            m['full_name'] ?? '',
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: C.textPrimary),
+                          ),
+                          if (isCreator) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: C.primaryLight,
+                                borderRadius: BorderRadius.circular(C.radiusFull),
+                              ),
+                              child: const Text('Admin', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: C.primary)),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(m['email'] ?? '', style: const TextStyle(fontSize: 13, color: C.textSecondary)),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF7ED),
+                    borderRadius: BorderRadius.circular(C.radiusFull),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('⚡', style: TextStyle(fontSize: 12)),
+                      const SizedBox(width: 2),
+                      Text('$karma', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFFD97706))),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                const Icon(Icons.chevron_right, color: C.textTertiary, size: 18),
+              ],
+            ),
           ),
         );
       },
@@ -810,39 +840,66 @@ class _EventsTab extends StatelessWidget {
         ),
       );
     }
-    return ListView.separated(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       itemCount: events.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
       itemBuilder: (ctx, i) {
         final event = events[i];
-        String dateStr = event['date'] ?? '';
+        String dateStr = '';
         try {
-          final d = DateTime.parse(event['date']);
+          final d = DateTime.parse(event['event_date'] ?? event['date'] ?? '');
           dateStr = DateFormat('EEE d MMM', 'fr_FR').format(d);
         } catch (_) {}
+        final timeStr = event['time_from'] as String?;
 
-        return ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-          leading: Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: C.blueLight,
-              borderRadius: BorderRadius.circular(C.radiusBase),
-            ),
-            child: const Icon(Icons.event, color: C.blue, size: 22),
+        return Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: C.surface,
+            borderRadius: BorderRadius.circular(C.radiusLg),
+            border: Border.all(color: C.borderLight),
+            boxShadow: const [
+              BoxShadow(color: Color(0x0A000000), blurRadius: 6, offset: Offset(0, 2)),
+            ],
           ),
-          title: Text(
-            event['title'] ?? '',
-            style: const TextStyle(
-              fontWeight: FontWeight.w600,
-              color: C.textPrimary,
-            ),
-          ),
-          subtitle: Text(
-            [dateStr, event['time_from']].whereType<String>().join(' · '),
-            style: const TextStyle(fontSize: 13, color: C.textSecondary),
+          child: Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: C.blueLight,
+                  borderRadius: BorderRadius.circular(C.radiusBase),
+                ),
+                child: const Icon(Icons.event_outlined, color: C.blue, size: 22),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      event['title'] ?? '',
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: C.textPrimary),
+                    ),
+                    if (dateStr.isNotEmpty || timeStr != null) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          const Icon(Icons.calendar_today_outlined, size: 12, color: C.textTertiary),
+                          const SizedBox(width: 4),
+                          Text(
+                            [dateStr, if (timeStr != null) timeStr].join(' · '),
+                            style: const TextStyle(fontSize: 13, color: C.textTertiary),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
           ),
         );
       },

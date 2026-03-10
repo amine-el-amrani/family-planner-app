@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -130,6 +132,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _toggleTask(Map<String, dynamic> task) async {
+    HapticFeedback.lightImpact();
     final newStatus = task['status'] == 'fait' ? 'en_attente' : 'fait';
     // Optimistic update — flip instantly in all lists
     void flipIn(List<Map<String, dynamic>> list) {
@@ -170,6 +173,41 @@ class _HomeScreenState extends State<HomeScreen> {
           revertIn(_tomorrowUrgent);
         });
       }
+    }
+  }
+
+  Future<void> _deleteTask(Map<String, dynamic> task) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Supprimer la tâche'),
+        content: Text('Supprimer "${(task['title'] ?? 'cette tâche').toString()}" ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: C.destructive),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    void removeFrom(List<Map<String, dynamic>> list) =>
+        list.removeWhere((t) => t['id'] == task['id']);
+    setState(() {
+      removeFrom(_myTasks);
+      removeFrom(_familyTasks);
+      removeFrom(_tomorrowUrgent);
+    });
+    try {
+      final taskId = task['id'];
+      await _api.dio.delete('/tasks/$taskId');
+    } catch (_) {
+      if (mounted) _loadData();
     }
   }
 
@@ -389,6 +427,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
                         child: Row(
                           children: [
+                            _UserAvatar(user: user),
+                            const SizedBox(width: 12),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -492,6 +532,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               _myTasks[i]['priority'] ?? 'normale',
                             ),
                             onToggle: () => _toggleTask(_myTasks[i]),
+                            onDelete: () => _deleteTask(_myTasks[i]),
                           ),
                           childCount: _myTasks.length,
                         ),
@@ -514,6 +555,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               _familyTasks[i]['priority'] ?? 'normale',
                             ),
                             onToggle: () => _toggleTask(_familyTasks[i]),
+                            onDelete: () => _deleteTask(_familyTasks[i]),
                           ),
                           childCount: _familyTasks.length,
                         ),
@@ -535,6 +577,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               _tomorrowUrgent[i]['priority'] ?? 'haute',
                             ),
                             onToggle: () => _toggleTask(_tomorrowUrgent[i]),
+                            onDelete: () => _deleteTask(_tomorrowUrgent[i]),
                           ),
                           childCount: _tomorrowUrgent.length,
                         ),
@@ -584,16 +627,23 @@ class _KarmaWidget extends StatelessWidget {
   final Map<String, dynamic> karma;
   const _KarmaWidget({required this.karma});
 
+  String _formatK(int v) {
+    if (v >= 1000) return '${(v / 1000).toStringAsFixed(1)}k';
+    return '$v';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final total = karma['karma_total'] ?? 0;
-    final daily = karma['daily_completed'] ?? 0;
-    final goal = karma['daily_goal'] ?? 5;
-    final progress = goal > 0 ? (daily / goal).clamp(0.0, 1.0) : 0.0;
+    final total = (karma['karma_total'] ?? 0) as int;
+    final daily = (karma['daily_completed'] ?? 0) as int;
+    final goal = (karma['daily_goal'] ?? 5) as int;
+    final weekly = (karma['weekly_completed'] ?? 0) as int;
+    final weeklyGoal = goal * 5;
+    final goalReached = goal > 0 && daily >= goal;
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           colors: [C.primary, Color(0xFFCF3520)],
@@ -601,72 +651,132 @@ class _KarmaWidget extends StatelessWidget {
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(C.radiusLg),
-        boxShadow: [
+        boxShadow: const [
           BoxShadow(
-            color: C.primary.withOpacity(0.3),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            color: Color(0x4DE44232),
+            blurRadius: 16,
+            offset: Offset(0, 6),
           ),
         ],
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
+                const Row(
                   children: [
-                    const Icon(Icons.bolt, color: Colors.white, size: 18),
-                    const SizedBox(width: 4),
-                    const Text(
-                      'Karma',
+                    Icon(Icons.bolt, color: Colors.white70, size: 14),
+                    SizedBox(width: 4),
+                    Text(
+                      'KARMA',
                       style: TextStyle(
                         color: Colors.white70,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '$total pts',
+                  '${_formatK(total)} pts',
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 22,
+                    fontSize: 26,
                     fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
                   ),
                 ),
-                const SizedBox(height: 8),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: progress,
-                    backgroundColor: Colors.white30,
-                    valueColor:
-                        const AlwaysStoppedAnimation<Color>(Colors.white),
-                    minHeight: 5,
-                  ),
+                const SizedBox(height: 10),
+                _ProgressRow(
+                  label: "Aujourd'hui",
+                  current: daily,
+                  total: goal,
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  '$daily/$goal tâches aujourd\'hui',
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 11,
-                  ),
+                const SizedBox(height: 6),
+                _ProgressRow(
+                  label: 'Cette semaine',
+                  current: weekly,
+                  total: weeklyGoal > 0 ? weeklyGoal : 1,
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 12),
-          Text(
-            '🏆',
-            style: const TextStyle(fontSize: 36),
+          const SizedBox(width: 14),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                goalReached ? '🏆' : '🎯',
+                style: const TextStyle(fontSize: 38),
+              ),
+              if (goalReached) ...[
+                const SizedBox(height: 4),
+                const Text(
+                  'Objectif !',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ],
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ProgressRow extends StatelessWidget {
+  final String label;
+  final int current;
+  final int total;
+  const _ProgressRow({
+    required this.label,
+    required this.current,
+    required this.total,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = total > 0 ? (current / total).clamp(0.0, 1.0) : 0.0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              label,
+              style: const TextStyle(color: Colors.white60, fontSize: 11),
+            ),
+            const Spacer(),
+            Text(
+              '$current/$total',
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 3),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: progress,
+            backgroundColor: Colors.white24,
+            valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+            minHeight: 4,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -735,102 +845,151 @@ class _TaskTile extends StatelessWidget {
   final Map<String, dynamic> task;
   final Color priorityColor;
   final VoidCallback onToggle;
+  final VoidCallback? onDelete;
   const _TaskTile({
     required this.task,
     required this.priorityColor,
     required this.onToggle,
+    this.onDelete,
   });
+
+  String? _dueDateLabel() {
+    final s = task['due_date'] as String?;
+    if (s == null) return null;
+    try {
+      final d = DateTime.parse(s);
+      final today = DateTime.now();
+      final todayDate = DateTime(today.year, today.month, today.day);
+      final taskDate = DateTime(d.year, d.month, d.day);
+      final diff = taskDate.difference(todayDate).inDays;
+      if (diff == 0) return "Aujourd'hui";
+      if (diff == 1) return 'Demain';
+      if (diff < 0) return 'En retard';
+      return DateFormat('d MMM', 'fr_FR').format(d);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Color _dueDateColor() {
+    final s = task['due_date'] as String?;
+    if (s == null) return C.textTertiary;
+    try {
+      final d = DateTime.parse(s);
+      final today = DateTime.now();
+      final diff = DateTime(d.year, d.month, d.day)
+          .difference(DateTime(today.year, today.month, today.day))
+          .inDays;
+      if (diff < 0) return C.destructive;
+      if (diff == 0) return C.priorityHaute;
+    } catch (_) {}
+    return C.textTertiary;
+  }
 
   @override
   Widget build(BuildContext context) {
     final isDone = task['status'] == 'fait';
-    return Container(
+    final dueDateLabel = _dueDateLabel();
+    final dueDateColor = _dueDateColor();
+    final familyName = task['family_name'] as String?;
+    final assignedName = task['assigned_to_name'] as String?;
+    final hasChips =
+        dueDateLabel != null || familyName != null || assignedName != null;
+    final checkColor =
+        priorityColor == C.borderLight ? C.primary : priorityColor;
+
+    return GestureDetector(
+      onLongPress: onDelete == null ? null : () {
+        HapticFeedback.mediumImpact();
+        onDelete!();
+      },
+      child: Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
       decoration: BoxDecoration(
         color: C.surface,
         borderRadius: BorderRadius.circular(C.radiusBase),
         border: Border(
-          left: BorderSide(color: priorityColor, width: 3),
+          left: BorderSide(
+            color: isDone ? C.borderLight : priorityColor,
+            width: 3,
+          ),
         ),
-        boxShadow: [
+        boxShadow: const [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Color(0x0A000000),
             blurRadius: 4,
-            offset: const Offset(0, 1),
+            offset: Offset(0, 1),
           ),
         ],
       ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-        leading: GestureDetector(
-          onTap: onToggle,
-          child: Container(
-            width: 24,
-            height: 24,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isDone ? C.primary : Colors.transparent,
-              border: Border.all(
-                color: isDone ? C.primary : C.border,
-                width: 2,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            GestureDetector(
+              onTap: onToggle,
+              child: Container(
+                width: 22,
+                height: 22,
+                margin: const EdgeInsets.only(top: 1),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isDone ? checkColor : Colors.transparent,
+                  border: Border.all(color: checkColor, width: 2),
+                ),
+                child: isDone
+                    ? const Icon(Icons.check, color: Colors.white, size: 13)
+                    : null,
               ),
             ),
-            child: isDone
-                ? const Icon(Icons.check, color: Colors.white, size: 14)
-                : null,
-          ),
-        ),
-        title: Text(
-          task['title'] ?? '',
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w500,
-            color: isDone ? C.textTertiary : C.textPrimary,
-            decoration: isDone ? TextDecoration.lineThrough : null,
-          ),
-        ),
-        subtitle: _buildSubtitle(task),
-        trailing: task['priority'] != 'normale'
-            ? _PriorityBadge(priority: task['priority'])
-            : null,
-      ),
-    );
-  }
-
-  Widget? _buildSubtitle(Map<String, dynamic> task) {
-    final parts = <String>[];
-    if (task['family_name'] != null) parts.add(task['family_name']);
-    if (task['assigned_to_name'] != null) parts.add('→ ${task['assigned_to_name']}');
-    if (parts.isEmpty) return null;
-    return Text(
-      parts.join(' · '),
-      style: const TextStyle(fontSize: 12, color: C.textSecondary),
-    );
-  }
-}
-
-class _PriorityBadge extends StatelessWidget {
-  final String priority;
-  const _PriorityBadge({required this.priority});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = priority == 'urgente' ? C.priorityUrgente : C.priorityHaute;
-    final label = priority == 'urgente' ? 'Urgent' : 'Haute';
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(C.radiusFull),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
-          color: color,
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    task['title'] ?? '',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: isDone ? C.textTertiary : C.textPrimary,
+                      decoration:
+                          isDone ? TextDecoration.lineThrough : null,
+                    ),
+                  ),
+                  if (hasChips) ...[
+                    const SizedBox(height: 5),
+                    Wrap(
+                      spacing: 5,
+                      runSpacing: 4,
+                      children: [
+                        if (dueDateLabel != null)
+                          _InfoChip(
+                            label: dueDateLabel,
+                            icon: Icons.schedule_outlined,
+                            color: dueDateColor,
+                          ),
+                        if (familyName != null)
+                          _InfoChip(
+                            label: familyName,
+                            icon: Icons.group_outlined,
+                          ),
+                        if (assignedName != null)
+                          _InfoChip(
+                            label: assignedName,
+                            icon: Icons.person_outline,
+                          ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
         ),
       ),
+    ),
     );
   }
 }
@@ -841,60 +1000,119 @@ class _EventTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    DateTime? eventDate;
+    String? dayAbbrev;
+    String? dayNum;
+    if (event['date'] != null) {
+      try {
+        eventDate = DateTime.parse(event['date'] as String);
+        dayAbbrev = DateFormat('EEE', 'fr_FR').format(eventDate).toUpperCase();
+        dayNum = DateFormat('d').format(eventDate);
+      } catch (_) {}
+    }
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
       decoration: BoxDecoration(
         color: C.surface,
         borderRadius: BorderRadius.circular(C.radiusBase),
-        border: Border(left: BorderSide(color: C.blue, width: 3)),
-        boxShadow: [
+        border: const Border(left: BorderSide(color: C.blue, width: 3)),
+        boxShadow: const [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Color(0x0A000000),
             blurRadius: 4,
-            offset: const Offset(0, 1),
+            offset: Offset(0, 1),
           ),
         ],
       ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        leading: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: C.blueLight,
-            borderRadius: BorderRadius.circular(C.radiusSm),
-          ),
-          child: const Icon(Icons.event, color: C.blue, size: 20),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            if (dayAbbrev != null) ...[
+              Container(
+                width: 40,
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                decoration: BoxDecoration(
+                  color: C.blueLight,
+                  borderRadius: BorderRadius.circular(C.radiusSm),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      dayAbbrev,
+                      style: const TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        color: C.blue,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                    Text(
+                      dayNum!,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: C.blue,
+                        height: 1.1,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+            ] else ...[
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: C.blueLight,
+                  borderRadius: BorderRadius.circular(C.radiusSm),
+                ),
+                child: const Icon(Icons.event, color: C.blue, size: 20),
+              ),
+              const SizedBox(width: 12),
+            ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    event['title'] ?? '',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: C.textPrimary,
+                    ),
+                  ),
+                  if (event['time_from'] != null ||
+                      event['family_name'] != null) ...[
+                    const SizedBox(height: 5),
+                    Wrap(
+                      spacing: 5,
+                      runSpacing: 4,
+                      children: [
+                        if (event['time_from'] != null)
+                          _InfoChip(
+                            label: event['time_from'] as String,
+                            icon: Icons.access_time_outlined,
+                            color: C.blue,
+                          ),
+                        if (event['family_name'] != null)
+                          _InfoChip(
+                            label: event['family_name'] as String,
+                            icon: Icons.group_outlined,
+                          ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
         ),
-        title: Text(
-          event['title'] ?? '',
-          style: const TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w500,
-            color: C.textPrimary,
-          ),
-        ),
-        subtitle: _buildSubtitle(),
       ),
-    );
-  }
-
-  Widget? _buildSubtitle() {
-    final parts = <String>[];
-    if (event['date'] != null) {
-      try {
-        final d = DateTime.parse(event['date']);
-        parts.add(DateFormat('EEE d MMM', 'fr_FR').format(d));
-      } catch (_) {
-        parts.add(event['date']);
-      }
-    }
-    if (event['time_from'] != null) parts.add(event['time_from']);
-    if (event['family_name'] != null) parts.add(event['family_name']);
-    if (parts.isEmpty) return null;
-    return Text(
-      parts.join(' · '),
-      style: const TextStyle(fontSize: 12, color: C.textSecondary),
     );
   }
 }
@@ -906,39 +1124,44 @@ class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(40),
+      padding: const EdgeInsets.fromLTRB(40, 60, 40, 40),
       child: Column(
         children: [
-          const SizedBox(height: 40),
           Container(
-            width: 80,
-            height: 80,
+            width: 88,
+            height: 88,
             decoration: BoxDecoration(
               color: C.primaryLight,
               borderRadius: BorderRadius.circular(C.radius2xl),
             ),
-            child: const Icon(Icons.check_circle_outline, color: C.primary, size: 40),
+            child: const Center(
+              child: Text('🏖️', style: TextStyle(fontSize: 40)),
+            ),
           ),
           const SizedBox(height: 20),
           const Text(
             'Journée libre !',
             style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
               color: C.textPrimary,
             ),
           ),
           const SizedBox(height: 8),
           const Text(
-            'Aucune tâche pour aujourd\'hui. Profitez-en !',
+            'Aucune tâche ni événement.\nProfitez-en !',
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 14, color: C.textSecondary),
+            style: TextStyle(
+              fontSize: 14,
+              color: C.textSecondary,
+              height: 1.5,
+            ),
           ),
-          const SizedBox(height: 24),
-          TextButton.icon(
+          const SizedBox(height: 28),
+          ElevatedButton.icon(
             onPressed: onAdd,
-            icon: const Icon(Icons.add),
-            label: const Text('Ajouter une tâche'),
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('Planifier quelque chose'),
           ),
         ],
       ),
@@ -966,9 +1189,9 @@ class _ChoiceItem extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.08),
+          color: color.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(C.radiusBase),
-          border: Border.all(color: color.withOpacity(0.2)),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
         ),
         child: Row(
           children: [
@@ -983,6 +1206,85 @@ class _ChoiceItem extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Helper widgets ───────────────────────────────────────────────────────────
+
+class _InfoChip extends StatelessWidget {
+  final String label;
+  final IconData? icon;
+  final Color? color;
+  const _InfoChip({required this.label, this.icon, this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = color ?? C.textTertiary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: c.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(C.radiusFull),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 10, color: c),
+            const SizedBox(width: 3),
+          ],
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: c,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _UserAvatar extends StatelessWidget {
+  final Map<String, dynamic>? user;
+  const _UserAvatar({this.user});
+
+  @override
+  Widget build(BuildContext context) {
+    final profileImage = user?['profile_image'] as String?;
+    final fullName = user?['full_name'] as String? ?? '';
+    final initials = fullName
+        .trim()
+        .split(' ')
+        .where((p) => p.isNotEmpty)
+        .take(2)
+        .map((p) => p[0].toUpperCase())
+        .join();
+
+    if (profileImage != null && profileImage.contains('base64,')) {
+      try {
+        final bytes = base64Decode(profileImage.split('base64,').last);
+        return CircleAvatar(
+          radius: 20,
+          backgroundImage: MemoryImage(bytes),
+        );
+      } catch (_) {}
+    }
+
+    return CircleAvatar(
+      radius: 20,
+      backgroundColor: C.primaryLight,
+      child: Text(
+        initials.isEmpty ? '?' : initials,
+        style: const TextStyle(
+          color: C.primary,
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
