@@ -14,6 +14,7 @@ from app.tasks.models import Task
 from app.notifications.models import Notification
 from app.shopping.models import ShoppingList, ShoppingItem
 from app.notes.models import FamilyNote
+from app.auth.models import VerificationCode  # noqa
 from app.auth.routes import router as auth_router
 from app.users.routes import router as users_router
 from app.families.routes import router as families_router

@@ -11,6 +11,7 @@ import '../screens/community/family_details_screen.dart';
 import '../screens/community/invitations_screen.dart';
 import '../screens/profile/profile_screen.dart';
 import '../screens/notifications/notifications_screen.dart';
+import '../screens/auth/forgot_password_screen.dart';
 
 GoRouter buildRouter(AuthProvider auth) {
   return GoRouter(
@@ -20,13 +21,14 @@ GoRouter buildRouter(AuthProvider auth) {
       if (auth.isLoading) return null;
       final isAuth = auth.isAuthenticated;
       final loc = state.matchedLocation;
-      final isAuthRoute = loc == '/login' || loc == '/register';
+      final isAuthRoute = loc == '/login' || loc == '/register' || loc == '/forgot-password';
       if (!isAuth && !isAuthRoute) return '/login';
       if (isAuth && isAuthRoute) return '/home';
       return null;
     },
     routes: [
       GoRoute(path: '/login', builder: (ctx, _) => const LoginScreen()),
+      GoRoute(path: '/forgot-password', builder: (ctx, _) => const ForgotPasswordScreen()),
       GoRoute(path: '/register', builder: (ctx, _) => const RegisterScreen()),
       GoRoute(
         path: '/notifications',

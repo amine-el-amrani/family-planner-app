@@ -127,6 +127,259 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Future<void> _showChangePasswordSheet() async {
+    final currentCtrl = TextEditingController();
+    final newCtrl = TextEditingController();
+    final confirmCtrl = TextEditingController();
+    bool saving = false;
+    bool obsC = true, obsN = true, obsF = true;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSt) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            decoration: const BoxDecoration(
+              color: C.surface,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(child: Container(width: 40, height: 4,
+                    decoration: BoxDecoration(color: C.border, borderRadius: BorderRadius.circular(2)))),
+                const SizedBox(height: 16),
+                const Text('Changer le mot de passe',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: C.textPrimary)),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: currentCtrl,
+                  obscureText: obsC,
+                  decoration: InputDecoration(
+                    hintText: 'Mot de passe actuel',
+                    prefixIcon: const Icon(Icons.lock_outline, size: 18, color: C.textSecondary),
+                    suffixIcon: IconButton(
+                      icon: Icon(obsC ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                          size: 18, color: C.textTertiary),
+                      onPressed: () => setSt(() => obsC = !obsC),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: newCtrl,
+                  obscureText: obsN,
+                  decoration: InputDecoration(
+                    hintText: 'Nouveau mot de passe',
+                    prefixIcon: const Icon(Icons.lock_outline, size: 18, color: C.textSecondary),
+                    suffixIcon: IconButton(
+                      icon: Icon(obsN ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                          size: 18, color: C.textTertiary),
+                      onPressed: () => setSt(() => obsN = !obsN),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: confirmCtrl,
+                  obscureText: obsF,
+                  decoration: InputDecoration(
+                    hintText: 'Confirmer le nouveau mot de passe',
+                    prefixIcon: const Icon(Icons.lock_outline, size: 18, color: C.textSecondary),
+                    suffixIcon: IconButton(
+                      icon: Icon(obsF ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                          size: 18, color: C.textTertiary),
+                      onPressed: () => setSt(() => obsF = !obsF),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: saving ? null : () async {
+                    if (newCtrl.text != confirmCtrl.text) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('Les mots de passe ne correspondent pas'),
+                        backgroundColor: C.destructive,
+                        behavior: SnackBarBehavior.floating,
+                      ));
+                      return;
+                    }
+                    setSt(() => saving = true);
+                    try {
+                      await _api.dio.post('/auth/change-password', data: {
+                        'current_password': currentCtrl.text,
+                        'new_password': newCtrl.text,
+                      });
+                      if (context.mounted) Navigator.pop(ctx);
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                          content: Text('Mot de passe modifié !'),
+                          behavior: SnackBarBehavior.floating,
+                        ));
+                      }
+                    } catch (e) {
+                      String msg = 'Erreur';
+                      try {
+                        final d = (e as dynamic).response?.data;
+                        if (d is Map && d['detail'] != null) msg = d['detail'];
+                      } catch (_) {}
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(msg),
+                          backgroundColor: C.destructive,
+                          behavior: SnackBarBehavior.floating,
+                        ));
+                      }
+                      setSt(() => saving = false);
+                    }
+                  },
+                  child: saving
+                      ? const SizedBox(width: 18, height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Text('Modifier le mot de passe'),
+                ),
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    currentCtrl.dispose(); newCtrl.dispose(); confirmCtrl.dispose();
+  }
+
+  Future<void> _showChangeEmailSheet() async {
+    final emailCtrl = TextEditingController();
+    final codeCtrl = TextEditingController();
+    int step = 1;
+    bool saving = false;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSt) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            decoration: const BoxDecoration(
+              color: C.surface,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(child: Container(width: 40, height: 4,
+                    decoration: BoxDecoration(color: C.border, borderRadius: BorderRadius.circular(2)))),
+                const SizedBox(height: 16),
+                Text(step == 1 ? "Changer l'email" : 'Vérification',
+                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: C.textPrimary)),
+                const SizedBox(height: 6),
+                Text(
+                  step == 1
+                      ? 'Un code de vérification sera envoyé au nouvel email.'
+                      : 'Entrez le code reçu sur ${emailCtrl.text}.',
+                  style: const TextStyle(fontSize: 13, color: C.textSecondary),
+                ),
+                const SizedBox(height: 16),
+                if (step == 1)
+                  TextField(
+                    controller: emailCtrl,
+                    keyboardType: TextInputType.emailAddress,
+                    autocorrect: false,
+                    decoration: const InputDecoration(
+                      hintText: 'Nouvel email',
+                      prefixIcon: Icon(Icons.email_outlined, size: 18, color: C.textSecondary),
+                    ),
+                  )
+                else
+                  TextField(
+                    controller: codeCtrl,
+                    keyboardType: TextInputType.number,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, letterSpacing: 8),
+                    decoration: const InputDecoration(hintText: '------'),
+                    autofocus: true,
+                  ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: saving ? null : () async {
+                    setSt(() => saving = true);
+                    if (step == 1) {
+                      try {
+                        await _api.dio.post('/auth/request-email-change', data: {
+                          'new_email': emailCtrl.text.trim(),
+                        });
+                        setSt(() { step = 2; saving = false; });
+                      } catch (e) {
+                        String msg = 'Erreur';
+                        try {
+                          final d = (e as dynamic).response?.data;
+                          if (d is Map && d['detail'] != null) msg = d['detail'];
+                        } catch (_) {}
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            content: Text(msg),
+                            backgroundColor: C.destructive,
+                            behavior: SnackBarBehavior.floating,
+                          ));
+                        }
+                        setSt(() => saving = false);
+                      }
+                    } else {
+                      try {
+                        await _api.dio.post('/auth/verify-email-change', data: {
+                          'new_email': emailCtrl.text.trim(),
+                          'code': codeCtrl.text.trim(),
+                        });
+                        if (context.mounted) Navigator.pop(ctx);
+                        if (mounted) {
+                          await _fetchProfile();
+                          await context.read<AuthProvider>().refreshUser();
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                            content: Text('Email mis à jour !'),
+                            behavior: SnackBarBehavior.floating,
+                          ));
+                        }
+                      } catch (e) {
+                        String msg = 'Code invalide ou expiré';
+                        try {
+                          final d = (e as dynamic).response?.data;
+                          if (d is Map && d['detail'] != null) msg = d['detail'];
+                        } catch (_) {}
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            content: Text(msg),
+                            backgroundColor: C.destructive,
+                            behavior: SnackBarBehavior.floating,
+                          ));
+                        }
+                        setSt(() => saving = false);
+                      }
+                    }
+                  },
+                  child: saving
+                      ? const SizedBox(width: 18, height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : Text(step == 1 ? 'Envoyer le code' : 'Vérifier et mettre à jour'),
+                ),
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    emailCtrl.dispose(); codeCtrl.dispose();
+  }
+
   Future<void> _enablePush() async {
     setState(() => _pushLoading = true);
     String msg;
@@ -527,6 +780,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             style: OutlinedButton.styleFrom(
                               foregroundColor: C.primary,
                               side: const BorderSide(color: C.primary),
+                              minimumSize: const Size.fromHeight(48),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Change password + change email
+                    const SizedBox(height: 12),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: _showChangePasswordSheet,
+                            icon: const Icon(Icons.lock_outline, color: C.textSecondary),
+                            label: const Text('Changer le mot de passe'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: C.textSecondary,
+                              minimumSize: const Size.fromHeight(48),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          OutlinedButton.icon(
+                            onPressed: _showChangeEmailSheet,
+                            icon: const Icon(Icons.email_outlined, color: C.textSecondary),
+                            label: const Text('Changer l\'email'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: C.textSecondary,
                               minimumSize: const Size.fromHeight(48),
                             ),
                           ),

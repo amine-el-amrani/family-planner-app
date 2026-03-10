@@ -16,6 +16,7 @@ from app.families.models import Family, FamilyInvitation
 from app.events.models import Event
 from app.tasks.models import Task
 from app.notifications.models import Notification
+from app.auth.models import VerificationCode  # noqa
 
 config = context.config
 
