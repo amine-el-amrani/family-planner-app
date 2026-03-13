@@ -51,7 +51,10 @@ _QUOTES = [
     "Votre famille mérite le meilleur de vous — pas le reste. Donnez le meilleur ! ✨",
 ]
 
-_PRAYERS = ["Fajr", "Dhouhr", "Asr", "Maghrib", "Isha"]
+# API keys (AlAdhan uses "Dhuhr", not "Dhouhr")
+_PRAYERS = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]
+# French display names for task titles
+_PRAYER_DISPLAY = {"Fajr": "Fajr", "Dhuhr": "Dhouhr", "Asr": "Asr", "Maghrib": "Maghrib", "Isha": "Isha"}
 
 
 def _fetch_paris_prayer_times() -> dict[str, str] | None:
@@ -83,8 +86,9 @@ def run_prayer_tasks_for_user(user, db) -> None:
     if not timings:
         logger.warning("[daily_jobs] No prayer timings fetched, skipping for user %s", user.id)
         return
-    for prayer_name, prayer_time in timings.items():
-        title = f"🕌 Prière {prayer_name} — {prayer_time}"
+    for prayer_key, prayer_time in timings.items():
+        display = _PRAYER_DISPLAY.get(prayer_key, prayer_key)
+        title = f"🕌 Prière {display} — {prayer_time}"
         existing = db.query(Task).filter(
             Task.title == title,
             Task.created_by_id == user.id,
@@ -95,7 +99,7 @@ def run_prayer_tasks_for_user(user, db) -> None:
             continue
         db.add(Task(
             title=title,
-            description=f"Prière {prayer_name} à {prayer_time} (heure de Paris)",
+            description=f"Prière {display} à {prayer_time} (heure de Paris)",
             status=TaskStatus.en_attente,
             priority=TaskPriority.normale,
             visibility=TaskVisibility.prive,
