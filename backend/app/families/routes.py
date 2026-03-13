@@ -12,6 +12,7 @@ from app.users.models import User
 from app.notifications.models import Notification
 from app.notifications.push import send_push
 from app.families.daily_jobs import run_prayer_tasks_for_family, run_motivation_message_for_family
+from app.tasks.models import Task, TaskStatus
 
 router = APIRouter(prefix="/families", tags=["Families"])
 
@@ -331,9 +332,16 @@ def update_family_settings(
         raise HTTPException(status_code=403, detail="Only the family creator can change settings")
     if body.prayer_enabled is not None:
         activating_prayer = body.prayer_enabled and not family.prayer_enabled
+        deactivating_prayer = not body.prayer_enabled and family.prayer_enabled
         family.prayer_enabled = body.prayer_enabled
         if activating_prayer:
             run_prayer_tasks_for_family(family, db)
+        elif deactivating_prayer:
+            db.query(Task).filter(
+                Task.family_id == family_id,
+                Task.title.like("🕌 Prière%"),
+                Task.status != TaskStatus.fait,
+            ).delete(synchronize_session=False)
     if body.motivation_enabled is not None:
         activating_motivation = body.motivation_enabled and not family.motivation_enabled
         family.motivation_enabled = body.motivation_enabled
