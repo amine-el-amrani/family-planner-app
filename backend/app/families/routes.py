@@ -11,8 +11,6 @@ from app.auth.deps import get_current_user
 from app.users.models import User
 from app.notifications.models import Notification
 from app.notifications.push import send_push
-from app.families.daily_jobs import run_prayer_tasks_for_family, run_motivation_message_for_family
-from app.tasks.models import Task, TaskStatus
 
 router = APIRouter(prefix="/families", tags=["Families"])
 
@@ -177,12 +175,9 @@ def get_daily_message_early(
 ):
     """Alias registered before /{family_id} so FastAPI matches it correctly."""
     today = date.today()
-    family_ids = [f.id for f in current_user.families]
-    if not family_ids:
-        return {"message": None}
     msg = (
         db.query(DailyMessage)
-        .filter(DailyMessage.family_id.in_(family_ids), DailyMessage.date == today)
+        .filter(DailyMessage.user_id == current_user.id, DailyMessage.date == today)
         .order_by(DailyMessage.id.desc())
         .first()
     )
@@ -313,58 +308,6 @@ def list_members(
         for user in family.members
     ]
 
-class FamilySettingsBody(BaseModel):
-    prayer_enabled: Optional[bool] = None
-    motivation_enabled: Optional[bool] = None
-
-
-@router.patch("/{family_id}/settings")
-def update_family_settings(
-    family_id: int,
-    body: FamilySettingsBody,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    family = db.query(Family).filter(Family.id == family_id).first()
-    if not family:
-        raise HTTPException(status_code=404, detail="Family not found")
-    if family.created_by_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Only the family creator can change settings")
-    if body.prayer_enabled is not None:
-        activating_prayer = body.prayer_enabled and not family.prayer_enabled
-        deactivating_prayer = not body.prayer_enabled and family.prayer_enabled
-        family.prayer_enabled = body.prayer_enabled
-        if activating_prayer:
-            run_prayer_tasks_for_family(family, db)
-        elif deactivating_prayer:
-            db.query(Task).filter(
-                Task.family_id == family_id,
-                Task.title.like("🕌 Prière%"),
-                Task.status != TaskStatus.fait,
-            ).delete(synchronize_session=False)
-    if body.motivation_enabled is not None:
-        activating_motivation = body.motivation_enabled and not family.motivation_enabled
-        family.motivation_enabled = body.motivation_enabled
-        if activating_motivation:
-            run_motivation_message_for_family(family, db)
-    db.commit()
-    return {"prayer_enabled": family.prayer_enabled, "motivation_enabled": family.motivation_enabled}
-
-
-@router.get("/{family_id}/settings")
-def get_family_settings(
-    family_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    family = db.query(Family).filter(Family.id == family_id).first()
-    if not family or current_user not in family.members:
-        raise HTTPException(status_code=404, detail="Family not found")
-    return {
-        "prayer_enabled": family.prayer_enabled or False,
-        "motivation_enabled": family.motivation_enabled or False,
-        "is_creator": family.created_by_id == current_user.id,
-    }
 
 
 @router.post("/{family_id}/remove-member")

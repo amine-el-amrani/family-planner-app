@@ -19,8 +19,6 @@ class Family(Base):
     description = Column(String, nullable=True)
     family_image = Column(String, nullable=True)
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    prayer_enabled = Column(Boolean, default=False)
-    motivation_enabled = Column(Boolean, default=False)
 
     members = relationship(
         "User",
@@ -53,9 +51,7 @@ class DailyMessage(Base):
     __tablename__ = "daily_messages"
 
     id = Column(Integer, primary_key=True, index=True)
-    family_id = Column(Integer, ForeignKey("families.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     message = Column(String, nullable=False)
     date = Column(Date, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
-
-    family = relationship("Family")

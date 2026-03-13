@@ -1,16 +1,16 @@
 """
-Daily scheduled jobs for family feature flags:
-- create_daily_prayer_tasks(): creates 5 prayer tasks for each member of prayer-enabled families
-- create_daily_motivation_messages(): picks a daily motivational quote and notifies members
+Daily scheduled jobs:
+- create_daily_prayer_tasks(): creates 5 prayer tasks per user with prayer_enabled=True
+- create_daily_motivation_messages(): sends a daily motivational quote per user with motivation_enabled=True
+- generate_recurring_tasks(): generates daily task instances from recurring task templates
 """
-import random
 import logging
-from datetime import date, datetime
+from datetime import date
 
 import requests as _requests
 
 from app.database import SessionLocal
-from app.families.models import Family, DailyMessage
+from app.families.models import DailyMessage
 from app.tasks.models import Task, TaskStatus, TaskVisibility, TaskPriority
 from app.notifications.models import Notification
 from app.notifications.push import send_push
@@ -51,7 +51,6 @@ _QUOTES = [
     "Votre famille mérite le meilleur de vous — pas le reste. Donnez le meilleur ! ✨",
 ]
 
-# Prayer names in French
 _PRAYERS = ["Fajr", "Dhouhr", "Asr", "Maghrib", "Isha"]
 
 
@@ -75,58 +74,60 @@ def _fetch_paris_prayer_times() -> dict[str, str] | None:
         return None
 
 
-def run_prayer_tasks_for_family(family, db) -> None:
-    """Create today's prayer tasks for a single family using an existing DB session."""
+# ── Per-user helpers (called on immediate activation) ─────────────────────────
+
+def run_prayer_tasks_for_user(user, db) -> None:
+    """Create today's prayer tasks for a single user using an existing DB session."""
     today = date.today()
     timings = _fetch_paris_prayer_times()
     if not timings:
-        logger.warning("[daily_jobs] No prayer timings fetched, skipping prayer tasks for family %s", family.id)
+        logger.warning("[daily_jobs] No prayer timings fetched, skipping for user %s", user.id)
         return
-    for member in family.members:
-        for prayer_name, prayer_time in timings.items():
-            title = f"🕌 Prière {prayer_name} — {prayer_time}"
-            existing = db.query(Task).filter(
-                Task.title == title,
-                Task.family_id == family.id,
-                Task.assigned_to_id == member.id,
-                Task.due_date == today,
-            ).first()
-            if existing:
-                continue
-            db.add(Task(
-                title=title,
-                description=f"Prière {prayer_name} à {prayer_time} (heure de Paris)",
-                status=TaskStatus.en_attente,
-                priority=TaskPriority.normale,
-                visibility=TaskVisibility.prive,
-                family_id=family.id,
-                created_by_id=family.created_by_id,
-                assigned_to_id=member.id,
-                due_date=today,
-            ))
+    for prayer_name, prayer_time in timings.items():
+        title = f"🕌 Prière {prayer_name} — {prayer_time}"
+        existing = db.query(Task).filter(
+            Task.title == title,
+            Task.created_by_id == user.id,
+            Task.assigned_to_id == user.id,
+            Task.due_date == today,
+        ).first()
+        if existing:
+            continue
+        db.add(Task(
+            title=title,
+            description=f"Prière {prayer_name} à {prayer_time} (heure de Paris)",
+            status=TaskStatus.en_attente,
+            priority=TaskPriority.normale,
+            visibility=TaskVisibility.prive,
+            family_id=None,
+            created_by_id=user.id,
+            assigned_to_id=user.id,
+            due_date=today,
+        ))
 
 
-def run_motivation_message_for_family(family, db) -> None:
-    """Create today's motivation message for a single family using an existing DB session."""
+def run_motivation_message_for_user(user, db) -> None:
+    """Create today's motivation message for a single user using an existing DB session."""
     today = date.today()
     existing = db.query(DailyMessage).filter(
-        DailyMessage.family_id == family.id,
+        DailyMessage.user_id == user.id,
         DailyMessage.date == today,
     ).first()
     if existing:
         return
     day_of_year = today.timetuple().tm_yday
-    quote = _QUOTES[(day_of_year + family.id) % len(_QUOTES)]
-    db.add(DailyMessage(family_id=family.id, message=quote, date=today))
-    for member in family.members:
-        db.add(Notification(
-            message=f"💬 Message du jour : {quote}",
-            user_id=member.id,
-            created_by_id=family.created_by_id,
-        ))
-        if member.push_token:
-            send_push(member.push_token, "💬 Message du jour", quote, url="/home")
+    quote = _QUOTES[(day_of_year + user.id) % len(_QUOTES)]
+    db.add(DailyMessage(user_id=user.id, message=quote, date=today))
+    db.add(Notification(
+        message=f"💬 Message du jour : {quote}",
+        user_id=user.id,
+        created_by_id=user.id,
+    ))
+    if user.push_token:
+        send_push(user.push_token, "💬 Message du jour", quote, url="/home")
 
+
+# ── Cron jobs ─────────────────────────────────────────────────────────────────
 
 def generate_recurring_tasks() -> None:
     """Generate today's task instances for all active recurring tasks."""
@@ -152,46 +153,21 @@ def generate_recurring_tasks() -> None:
 
 
 def create_daily_prayer_tasks() -> None:
-    """For each family with prayer_enabled, create 5 prayer tasks for all members."""
+    """For each user with prayer_enabled, create 5 prayer tasks for today."""
+    from app.users.models import User
     db = SessionLocal()
     try:
-        today = date.today()
-        families = db.query(Family).filter(Family.prayer_enabled == True).all()  # noqa: E712
-        if not families:
+        users = db.query(User).filter(User.prayer_enabled == True).all()  # noqa: E712
+        if not users:
             return
-
         timings = _fetch_paris_prayer_times()
         if not timings:
             logger.warning("[daily_jobs] No prayer timings fetched, skipping prayer tasks")
             return
-
-        for family in families:
-            for member in family.members:
-                for prayer_name, prayer_time in timings.items():
-                    title = f"🕌 Prière {prayer_name} — {prayer_time}"
-                    # Check if already created today for this member/family
-                    existing = db.query(Task).filter(
-                        Task.title == title,
-                        Task.family_id == family.id,
-                        Task.assigned_to_id == member.id,
-                        Task.due_date == today,
-                    ).first()
-                    if existing:
-                        continue
-                    task = Task(
-                        title=title,
-                        description=f"Prière {prayer_name} à {prayer_time} (heure de Paris)",
-                        status=TaskStatus.en_attente,
-                        priority=TaskPriority.normale,
-                        visibility=TaskVisibility.prive,
-                        family_id=family.id,
-                        created_by_id=family.created_by_id,
-                        assigned_to_id=member.id,
-                        due_date=today,
-                    )
-                    db.add(task)
+        for user in users:
+            run_prayer_tasks_for_user(user, db)
         db.commit()
-        logger.info(f"[daily_jobs] Prayer tasks created for {len(families)} families")
+        logger.info(f"[daily_jobs] Prayer tasks created for {len(users)} users")
     except Exception as e:
         logger.error(f"[daily_jobs] Error creating prayer tasks: {e}")
         db.rollback()
@@ -200,52 +176,15 @@ def create_daily_prayer_tasks() -> None:
 
 
 def create_daily_motivation_messages() -> None:
-    """For each family with motivation_enabled, pick a daily quote and notify all members."""
+    """For each user with motivation_enabled, send a daily motivational quote."""
+    from app.users.models import User
     db = SessionLocal()
     try:
-        today = date.today()
-        families = db.query(Family).filter(Family.motivation_enabled == True).all()  # noqa: E712
-
-        for family in families:
-            # Check if message already created today for this family
-            existing = db.query(DailyMessage).filter(
-                DailyMessage.family_id == family.id,
-                DailyMessage.date == today,
-            ).first()
-            if existing:
-                continue
-
-            # Pick a deterministic quote for the day based on day-of-year + family id
-            day_of_year = today.timetuple().tm_yday
-            quote_index = (day_of_year + family.id) % len(_QUOTES)
-            quote = _QUOTES[quote_index]
-
-            # Save daily message
-            msg_record = DailyMessage(
-                family_id=family.id,
-                message=quote,
-                date=today,
-            )
-            db.add(msg_record)
-
-            # Notify all members
-            for member in family.members:
-                notif = Notification(
-                    message=f"💬 Message du jour : {quote}",
-                    user_id=member.id,
-                    created_by_id=family.created_by_id,
-                )
-                db.add(notif)
-                if member.push_token:
-                    send_push(
-                        member.push_token,
-                        "💬 Message du jour",
-                        quote,
-                        url="/home",
-                    )
-
+        users = db.query(User).filter(User.motivation_enabled == True).all()  # noqa: E712
+        for user in users:
+            run_motivation_message_for_user(user, db)
         db.commit()
-        logger.info(f"[daily_jobs] Motivation messages created for {len(families)} families")
+        logger.info(f"[daily_jobs] Motivation messages created for {len(users)} users")
     except Exception as e:
         logger.error(f"[daily_jobs] Error creating motivation messages: {e}")
         db.rollback()

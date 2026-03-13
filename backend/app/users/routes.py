@@ -1,6 +1,8 @@
 import base64
 from datetime import datetime, timedelta
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from pydantic import BaseModel
 from app.auth.deps import get_current_user
 from app.users.models import User
 from app.auth.schemas import UserUpdate, UserOut
@@ -134,6 +136,58 @@ def push_status(current_user: User = Depends(get_current_user)):
         "has_subscription": token.startswith("{"),
         "has_expo_token": token.startswith("ExponentPushToken["),
         "endpoint_preview": token[:60] + "..." if len(token) > 60 else token,
+    }
+
+
+class UserSettingsBody(BaseModel):
+    prayer_enabled: Optional[bool] = None
+    motivation_enabled: Optional[bool] = None
+
+
+@router.get("/me/settings")
+def get_user_settings(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    db.refresh(current_user)
+    return {
+        "prayer_enabled": current_user.prayer_enabled or False,
+        "motivation_enabled": current_user.motivation_enabled or False,
+    }
+
+
+@router.patch("/me/settings")
+def update_user_settings(
+    body: UserSettingsBody,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.families.daily_jobs import run_prayer_tasks_for_user, run_motivation_message_for_user
+    from app.tasks.models import Task, TaskStatus
+
+    if body.prayer_enabled is not None:
+        activating = body.prayer_enabled and not current_user.prayer_enabled
+        deactivating = not body.prayer_enabled and current_user.prayer_enabled
+        current_user.prayer_enabled = body.prayer_enabled
+        if activating:
+            run_prayer_tasks_for_user(current_user, db)
+        elif deactivating:
+            db.query(Task).filter(
+                Task.created_by_id == current_user.id,
+                Task.title.like("🕌 Prière%"),
+                Task.status != TaskStatus.fait,
+            ).delete(synchronize_session=False)
+
+    if body.motivation_enabled is not None:
+        activating = body.motivation_enabled and not current_user.motivation_enabled
+        current_user.motivation_enabled = body.motivation_enabled
+        if activating:
+            run_motivation_message_for_user(current_user, db)
+
+    db.commit()
+    return {
+        "prayer_enabled": current_user.prayer_enabled,
+        "motivation_enabled": current_user.motivation_enabled,
     }
 
 

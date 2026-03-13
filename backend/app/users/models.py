@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, String, Boolean
 from app.database import Base
 
 
@@ -15,3 +15,7 @@ class User(Base):
     # Système de karma/récompenses
     karma_total = Column(Integer, default=0, nullable=False)
     daily_goal = Column(Integer, default=5, nullable=False)
+
+    # Préférences personnelles
+    prayer_enabled = Column(Boolean, default=False)
+    motivation_enabled = Column(Boolean, default=False)
