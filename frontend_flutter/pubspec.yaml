@@ -39,6 +39,9 @@ dependencies:
   # Network image with caching
   cached_network_image: ^3.4.1
 
+  # Barcode scanner
+  mobile_scanner: ^5.2.3
+
   cupertino_icons: ^1.0.8
 
 dev_dependencies:

@@ -8,6 +8,19 @@ import '../../providers/auth_provider.dart';
 import '../../services/push_service.dart';
 import '../../theme/app_theme.dart';
 
+
+// ─── Achievement milestones ────────────────────────────────────────────────
+const _kAchievements = [
+  (icon: '🌱', title: 'Premier pas',   desc: '10 points karma',        karma: 10),
+  (icon: '⚡', title: 'Actif',         desc: '100 points karma',       karma: 100),
+  (icon: '🔥', title: 'Régulier',      desc: '500 points karma',       karma: 500),
+  (icon: '🏅', title: 'Champion',      desc: '1 000 points karma',     karma: 1000),
+  (icon: '🏆', title: 'Maître',        desc: '5 000 points karma',     karma: 5000),
+  (icon: '👑', title: 'Élite',         desc: '10 000 points karma',    karma: 10000),
+  (icon: '⭐', title: 'Légende',      desc: '20 000 points karma',    karma: 20000),
+];
+
+
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -383,6 +396,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _showDailyGoalDialog() async {
     final current = (_profile?['daily_goal'] as int?) ?? 5;
     int selected = current;
+    final ctrl = TextEditingController(text: '$current');
     final confirmed = await showDialog<int>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -394,44 +408,58 @@ class _ProfileScreenState extends State<ProfileScreen> {
             children: [
               const Text('Nombre de tâches à accomplir par jour',
                   style: TextStyle(fontSize: 13, color: C.textSecondary)),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   IconButton(
-                    onPressed: selected > 1 ? () => setSt(() => selected--) : null,
+                    onPressed: selected > 1 ? () {
+                      setSt(() { selected--; ctrl.text = '$selected'; ctrl.selection = TextSelection.collapsed(offset: ctrl.text.length); });
+                    } : null,
                     icon: const Icon(Icons.remove_circle_outline, color: C.primary, size: 28),
                     padding: EdgeInsets.zero,
                   ),
-                  const SizedBox(width: 16),
-                  Text(
-                    '$selected',
-                    style: const TextStyle(
-                      fontSize: 40,
-                      fontWeight: FontWeight.w800,
-                      color: C.textPrimary,
+                  const SizedBox(width: 12),
+                  SizedBox(
+                    width: 72,
+                    child: TextField(
+                      controller: ctrl,
+                      autofocus: true,
+                      keyboardType: TextInputType.number,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 36, fontWeight: FontWeight.w800, color: C.textPrimary),
+                      decoration: const InputDecoration(
+                        border: UnderlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(vertical: 4),
+                      ),
+                      onChanged: (v) {
+                        final n = int.tryParse(v);
+                        if (n != null && n >= 1 && n <= 50) setSt(() => selected = n);
+                      },
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 12),
                   IconButton(
-                    onPressed: selected < 50 ? () => setSt(() => selected++) : null,
+                    onPressed: selected < 50 ? () {
+                      setSt(() { selected++; ctrl.text = '$selected'; ctrl.selection = TextSelection.collapsed(offset: ctrl.text.length); });
+                    } : null,
                     icon: const Icon(Icons.add_circle_outline, color: C.primary, size: 28),
                     padding: EdgeInsets.zero,
                   ),
                 ],
               ),
               const SizedBox(height: 4),
-              const Text('tâches / jour',
+              const Text('tâches / jour (1 – 50)',
                   style: TextStyle(fontSize: 13, color: C.textTertiary)),
             ],
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(ctx),
+              onPressed: () { ctrl.dispose(); Navigator.pop(ctx); },
               child: const Text('Annuler'),
             ),
             ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, selected),
+              onPressed: () { ctrl.dispose(); Navigator.pop(ctx, selected); },
               child: const Text('Enregistrer'),
             ),
           ],
@@ -538,17 +566,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const SizedBox(height: 24),
                     Stack(
                       children: [
-                        CircleAvatar(
-                          radius: 48,
-                          backgroundColor: C.primaryLight,
-                          backgroundImage: _avatarImage(),
-                          child: _avatarImage() == null
-                              ? const Icon(
-                                  Icons.account_circle,
-                                  size: 48,
-                                  color: C.primary,
-                                )
-                              : null,
+                        GestureDetector(
+                          onTap: () {
+                            final ip = _avatarImage();
+                            if (ip != null) _openPhotoViewer(context, ip);
+                          },
+                          child: CircleAvatar(
+                            radius: 48,
+                            backgroundColor: C.primaryLight,
+                            backgroundImage: _avatarImage(),
+                            child: _avatarImage() == null
+                                ? const Icon(
+                                    Icons.account_circle,
+                                    size: 48,
+                                    color: C.primary,
+                                  )
+                                : null,
+                          ),
                         ),
                         Positioned(
                           bottom: 0,
@@ -827,6 +861,51 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       ),
                     ],
+                    // Achievements section
+                    if (_profile?['karma_total'] != null) ...[
+                      const SizedBox(height: 16),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(children: [
+                          const Text('Succès', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: C.textPrimary)),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${_kAchievements.where((a) => (_profile!['karma_total'] as int? ?? 0) >= a.karma).length}/${_kAchievements.length}',
+                            style: const TextStyle(fontSize: 13, color: C.textSecondary),
+                          ),
+                        ]),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        height: 88,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          itemCount: _kAchievements.length,
+                          separatorBuilder: (_, __) => const SizedBox(width: 10),
+                          itemBuilder: (_, i) {
+                            final a = _kAchievements[i];
+                            final unlocked = (_profile!['karma_total'] as int? ?? 0) >= a.karma;
+                            return Container(
+                              width: 78,
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: unlocked ? C.primaryLight : C.surfaceAlt,
+                                borderRadius: BorderRadius.circular(C.radiusBase),
+                                border: Border.all(color: unlocked ? C.primary.withValues(alpha: 0.35) : C.borderLight),
+                              ),
+                              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                                Text(unlocked ? a.icon : '🔒', style: TextStyle(fontSize: 26, color: unlocked ? null : const Color(0xFFcbd5e1))),
+                                const SizedBox(height: 4),
+                                Text(a.title, textAlign: TextAlign.center,
+                                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: unlocked ? C.textPrimary : C.textTertiary),
+                                  maxLines: 2, overflow: TextOverflow.ellipsis),
+                              ]),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                     // Daily goal section
                     if (_profile != null) ...[
                       const SizedBox(height: 8),
@@ -993,4 +1072,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
   }
+}
+
+void _openPhotoViewer(BuildContext context, ImageProvider image) {
+  showDialog(
+    context: context,
+    barrierColor: Colors.black87,
+    barrierDismissible: true,
+    builder: (ctx) => GestureDetector(
+      onTap: () => Navigator.of(ctx).pop(),
+      child: Center(
+        child: InteractiveViewer(
+          child: Image(image: image),
+        ),
+      ),
+    ),
+  );
 }

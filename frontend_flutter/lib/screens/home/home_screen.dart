@@ -166,17 +166,25 @@ class _HomeScreenState extends State<HomeScreen> {
       flipIn(_familyTasks);
       flipIn(_tomorrowUrgent);
     });
+    // Optimistic karma update
+    if (_karma != null) {
+      final karmaChange = newStatus == 'fait' ? 10 : -10;
+      final newTotal = (((_karma!['karma_total'] as int?) ?? 0) + karmaChange).clamp(0, 999999);
+      final newDaily = (((_karma!['daily_completed'] as int?) ?? 0) + (newStatus == 'fait' ? 1 : -1)).clamp(0, 999);
+      setState(() {
+        _karma = Map<String, dynamic>.from(_karma!)
+          ..['karma_total'] = newTotal
+          ..['daily_completed'] = newDaily;
+      });
+    }
     try {
       final res = await _api.dio.patch('/tasks/${task['id']}', data: {'status': newStatus});
-      // Backend now includes current_user_karma_total in the response — update directly
-      final newKarma = res.data['current_user_karma_total'];
-      if (newKarma != null && _karma != null && mounted) {
+      // Confirm with server value if available
+      final serverKarma = res.data['current_user_karma_total'];
+      if (serverKarma != null && _karma != null && mounted) {
         setState(() {
-          _karma = Map<String, dynamic>.from(_karma!)..['karma_total'] = newKarma;
+          _karma = Map<String, dynamic>.from(_karma!)..['karma_total'] = serverKarma;
         });
-      } else {
-        // Fallback: separate GET request
-        _refreshKarma();
       }
     } catch (_) {
       // Revert on failure
@@ -229,18 +237,22 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _showEditTask(Map<String, dynamic> task) {
+  void _showTaskDetail(Map<String, dynamic> task) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => _HomeEditTaskSheet(
-        task: task,
-        onSave: (data) async {
-          await _api.dio.patch('/tasks/${task['id']}', data: data);
-          if (mounted) _loadData();
-        },
-      ),
+      builder: (ctx) => _TaskDetailSheet(task: task),
+    );
+  }
+
+  void _showKarmaDetail() {
+    if (_karma == null) return;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _KarmaDetailSheet(karma: _karma!),
     );
   }
 
@@ -550,7 +562,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     // Karma widget
                     if (_karma != null)
                       SliverToBoxAdapter(
-                        child: _KarmaWidget(karma: _karma!),
+                        child: GestureDetector(
+                          onTap: _showKarmaDetail,
+                          child: _KarmaWidget(karma: _karma!),
+                        ),
                       ),
 
                     // My tasks section
@@ -570,7 +585,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             onToggle: () => _toggleTask(_myTasks[i]),
                             onDelete: () => _deleteTask(_myTasks[i]),
-                            onTap: () => _showEditTask(_myTasks[i]),
+                            onTap: () => _showTaskDetail(_myTasks[i]),
                           ),
                           childCount: _myTasks.length,
                         ),
@@ -594,7 +609,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             onToggle: () => _toggleTask(_familyTasks[i]),
                             onDelete: () => _deleteTask(_familyTasks[i]),
-                            onTap: () => _showEditTask(_familyTasks[i]),
+                            onTap: () => _showTaskDetail(_familyTasks[i]),
                           ),
                           childCount: _familyTasks.length,
                         ),
@@ -617,7 +632,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             onToggle: () => _toggleTask(_tomorrowUrgent[i]),
                             onDelete: () => _deleteTask(_tomorrowUrgent[i]),
-                            onTap: () => _showEditTask(_tomorrowUrgent[i]),
+                            onTap: () => _showTaskDetail(_tomorrowUrgent[i]),
                           ),
                           childCount: _tomorrowUrgent.length,
                         ),
@@ -936,7 +951,7 @@ class _TaskTile extends StatelessWidget {
     final familyName = task['family_name'] as String?;
     final assignedName = task['assigned_to_name'] as String?;
     final hasChips =
-        task['category'] != null || dueDateLabel != null || familyName != null || assignedName != null;
+        dueDateLabel != null || familyName != null || assignedName != null;
     final checkColor =
         priorityColor == C.borderLight ? C.primary : priorityColor;
 
@@ -991,15 +1006,23 @@ class _TaskTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    task['title'] ?? '',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: isDone ? C.textTertiary : C.textPrimary,
-                      decoration:
-                          isDone ? TextDecoration.lineThrough : null,
-                    ),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          task['title'] ?? '',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: isDone ? C.textTertiary : C.textPrimary,
+                            decoration: isDone ? TextDecoration.lineThrough : null,
+                          ),
+                        ),
+                      ),
+                      if (task['category'] != null)
+                        _CategoryPill(category: task['category'] as String),
+                    ],
                   ),
                   if (hasChips) ...[
                     const SizedBox(height: 5),
@@ -1007,8 +1030,6 @@ class _TaskTile extends StatelessWidget {
                       spacing: 5,
                       runSpacing: 4,
                       children: [
-                        if (task['category'] != null)
-                          _InfoChip(label: task['category'] as String),
                         if (dueDateLabel != null)
                           _InfoChip(
                             label: dueDateLabel,
@@ -1258,6 +1279,35 @@ class _ChoiceItem extends StatelessWidget {
 }
 
 // ─── Helper widgets ───────────────────────────────────────────────────────────
+
+// ─── Category mini pill ─────────────────────────────────────────────────────
+
+class _CategoryPill extends StatelessWidget {
+  final String category;
+  const _CategoryPill({required this.category});
+
+  @override
+  Widget build(BuildContext context) {
+    Color color = C.textTertiary;
+    String emoji = '';
+    for (final c in _kCategories) {
+      if (c.$1 == category) { color = c.$2; emoji = c.$3; break; }
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(C.radiusFull),
+        border: Border.all(color: color.withValues(alpha: 0.4), width: 1),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        if (emoji.isNotEmpty) Text(emoji, style: const TextStyle(fontSize: 11)),
+        if (emoji.isNotEmpty) const SizedBox(width: 3),
+        Text(category, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: color)),
+      ]),
+    );
+  }
+}
 
 class _InfoChip extends StatelessWidget {
   final String label;
@@ -1905,194 +1955,379 @@ class _DateField extends StatelessWidget {
     );
   }
 }
+// ─── Achievement milestones ────────────────────────────────────────────────────
+const _kAchievements = [
+  (icon: '🌱', title: 'Premier pas',   desc: 'Obtenir ses 10 premiers points',  karma: 10),
+  (icon: '⚡', title: 'Actif',         desc: '100 points karma',                 karma: 100),
+  (icon: '🔥', title: 'Régulier',      desc: '500 points karma',                 karma: 500),
+  (icon: '🏅', title: 'Champion',      desc: '1 000 points karma',               karma: 1000),
+  (icon: '🎖️', title: 'Expert',        desc: '2 000 points karma',               karma: 2000),
+  (icon: '🏆', title: 'Maître',        desc: '5 000 points karma',               karma: 5000),
+  (icon: '👑', title: 'Élite',         desc: '10 000 points karma',              karma: 10000),
+  (icon: '⭐', title: 'Légende',       desc: '20 000 points karma',              karma: 20000),
+];
 
-// ─── Home Edit Task Sheet ─────────────────────────────────────────────────────
+// ─── Task Detail Sheet (read-only) ─────────────────────────────────────────────
 
-class _HomeEditTaskSheet extends StatefulWidget {
+class _TaskDetailSheet extends StatelessWidget {
   final Map<String, dynamic> task;
-  final Future<void> Function(Map<String, dynamic> data) onSave;
-  const _HomeEditTaskSheet({required this.task, required this.onSave});
-
-  @override
-  State<_HomeEditTaskSheet> createState() => _HomeEditTaskSheetState();
-}
-
-class _HomeEditTaskSheetState extends State<_HomeEditTaskSheet> {
-  late TextEditingController _titleCtrl;
-  late String _priority;
-  DateTime? _dueDate;
-  String? _category;
-  bool _saving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _titleCtrl = TextEditingController(
-        text: widget.task['title'] as String? ?? '');
-    _priority = widget.task['priority'] as String? ?? 'normale';
-    _category = widget.task['category'] as String?;
-    final raw = widget.task['due_date'] as String?;
-    if (raw != null) {
-      try { _dueDate = DateTime.parse(raw); } catch (_) {}
-    }
-  }
-
-  @override
-  void dispose() {
-    _titleCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    if (_titleCtrl.text.trim().isEmpty) return;
-    setState(() => _saving = true);
-    try {
-      await widget.onSave({
-        'title': _titleCtrl.text.trim(),
-        'priority': _priority,
-        if (_dueDate != null)
-          'due_date': DateFormat('yyyy-MM-dd').format(_dueDate!),
-        if (_category != null)
-          'category': _category,
-      });
-      if (mounted) Navigator.of(context).pop();
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Erreur lors de la modification'),
-          backgroundColor: C.destructive,
-          behavior: SnackBarBehavior.floating,
-        ));
-      }
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
+  const _TaskDetailSheet({required this.task});
 
   @override
   Widget build(BuildContext context) {
+    final isDone = task['status'] == 'fait';
+    final priority = task['priority'] as String? ?? 'normale';
+    final category = task['category'] as String?;
+    final dueDate = task['due_date'] as String?;
+    final familyName = task['family_name'] as String?;
+    final assignedName = task['assigned_to_name'] as String?;
+    final description = task['description'] as String?;
+
+    Color priorityColor;
+    String priorityLabel;
+    switch (priority) {
+      case 'urgente':
+        priorityColor = C.priorityUrgente;
+        priorityLabel = 'Urgente';
+        break;
+      case 'haute':
+        priorityColor = C.priorityHaute;
+        priorityLabel = 'Haute';
+        break;
+      default:
+        priorityColor = C.textTertiary;
+        priorityLabel = 'Normale';
+    }
+
+    // Find category color from _kCategories
+    Color? catColor;
+    String? catEmoji;
+    if (category != null) {
+      for (final c in _kCategories) {
+        if (c.$1 == category) { catColor = c.$2; catEmoji = c.$3; break; }
+      }
+    }
+
+    String? dueDateFormatted;
+    if (dueDate != null) {
+      try {
+        dueDateFormatted = DateFormat('EEEE d MMMM yyyy', 'fr_FR').format(DateTime.parse(dueDate));
+      } catch (_) {}
+    }
+
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: Container(
         decoration: const BoxDecoration(
           color: C.surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Center(
-              child: Container(
-                width: 40, height: 4,
+            Center(child: Container(
+              width: 40, height: 4,
+              decoration: BoxDecoration(color: C.border, borderRadius: BorderRadius.circular(2)),
+            )),
+            const SizedBox(height: 16),
+            // Title + status
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Container(
+                width: 22, height: 22,
                 decoration: BoxDecoration(
-                  color: C.border, borderRadius: BorderRadius.circular(2)),
+                  shape: BoxShape.circle,
+                  color: isDone ? C.primary : Colors.transparent,
+                  border: Border.all(color: isDone ? C.primary : C.border, width: 2),
+                ),
+                child: isDone ? const Icon(Icons.check, color: Colors.white, size: 13) : null,
               ),
-            ),
+              const SizedBox(width: 12),
+              Expanded(child: Text(
+                task['title'] ?? '',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: isDone ? C.textTertiary : C.textPrimary,
+                  decoration: isDone ? TextDecoration.lineThrough : null,
+                ),
+              )),
+            ]),
             const SizedBox(height: 16),
-            const Text(
-              'Modifier la tâche',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: C.textPrimary),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _titleCtrl,
-              autofocus: true,
-              decoration: const InputDecoration(labelText: 'Titre'),
-            ),
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 8,
-              children: [
-                for (final p in ['normale', 'haute', 'urgente'])
-                  ChoiceChip(
-                    label: Text(p == 'normale' ? 'Normale' : p == 'haute' ? 'Haute' : 'Urgente'),
-                    selected: _priority == p,
-                    selectedColor: p == 'urgente'
-                        ? const Color(0xFFfee2e2)
-                        : p == 'haute'
-                            ? const Color(0xFFffedd5)
-                            : C.primaryLight,
-                    onSelected: (_) => setState(() => _priority = p),
+            // Category
+            if (category != null) ...[
+              _DetailRow(
+                icon: null,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: (catColor ?? C.primary).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(C.radiusFull),
+                    border: Border.all(color: (catColor ?? C.primary).withValues(alpha: 0.4)),
                   ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            OutlinedButton.icon(
-              onPressed: () async {
-                final d = await showDatePicker(
-                  context: context,
-                  initialDate: _dueDate ?? DateTime.now(),
-                  firstDate: DateTime(2020),
-                  lastDate: DateTime(2030),
-                  locale: const Locale('fr', 'FR'),
-                );
-                if (d != null) setState(() => _dueDate = d);
-              },
-              icon: const Icon(Icons.calendar_today_outlined, size: 16),
-              label: Text(
-                _dueDate != null
-                    ? DateFormat("EEE d MMM", 'fr_FR').format(_dueDate!)
-                    : "Date d'échéance",
-              ),
-            ),
-            if (_dueDate != null) ...[
-              const SizedBox(height: 6),
-              TextButton.icon(
-                onPressed: () => setState(() => _dueDate = null),
-                icon: const Icon(Icons.close, size: 14, color: C.textTertiary),
-                label: const Text('Supprimer la date',
-                    style: TextStyle(fontSize: 12, color: C.textTertiary)),
-                style: TextButton.styleFrom(
-                  padding: EdgeInsets.zero,
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    if (catEmoji != null) Text(catEmoji, style: const TextStyle(fontSize: 14)),
+                    if (catEmoji != null) const SizedBox(width: 5),
+                    Text(category, style: TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w600,
+                      color: catColor ?? C.primary,
+                    )),
+                  ]),
                 ),
               ),
+              const SizedBox(height: 8),
             ],
-            const SizedBox(height: 12),
-            const Text('Catégorie', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: C.textSecondary)),
+            // Priority
+            _DetailRow(
+              icon: Icons.flag_outlined,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: priorityColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(priorityLabel, style: TextStyle(
+                  fontSize: 12, fontWeight: FontWeight.w600, color: priorityColor,
+                )),
+              ),
+            ),
+            // Due date
+            if (dueDateFormatted != null) ...[
+              const SizedBox(height: 8),
+              _DetailRow(
+                icon: Icons.calendar_today_outlined,
+                child: Text(dueDateFormatted, style: const TextStyle(fontSize: 14, color: C.textPrimary)),
+              ),
+            ],
+            // Family
+            if (familyName != null) ...[
+              const SizedBox(height: 8),
+              _DetailRow(
+                icon: Icons.group_outlined,
+                child: Text(familyName, style: const TextStyle(fontSize: 14, color: C.textPrimary)),
+              ),
+            ],
+            // Assigned
+            if (assignedName != null) ...[
+              const SizedBox(height: 8),
+              _DetailRow(
+                icon: Icons.person_outline,
+                child: Text(assignedName, style: const TextStyle(fontSize: 14, color: C.textPrimary)),
+              ),
+            ],
+            // Description
+            if (description != null && description.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              _DetailRow(
+                icon: Icons.notes_outlined,
+                child: Text(description, style: const TextStyle(fontSize: 14, color: C.textSecondary, height: 1.4)),
+              ),
+            ],
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: _kCategories.map((cat) {
-                final selected = _category == cat.$1;
-                return GestureDetector(
-                  onTap: () => setState(() => _category = selected ? null : cat.$1),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: selected ? cat.$2.withValues(alpha: 0.15) : C.surfaceAlt,
-                      borderRadius: BorderRadius.circular(C.radiusFull),
-                      border: Border.all(color: selected ? cat.$2 : C.border, width: 1.2),
-                    ),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Text(cat.$3, style: const TextStyle(fontSize: 14)),
-                      const SizedBox(width: 4),
-                      Text(cat.$1, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: selected ? cat.$2 : C.textSecondary)),
-                    ]),
-                  ),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _saving ? null : _save,
-              child: _saving
-                  ? const SizedBox(
-                      height: 20, width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : const Text('Sauvegarder'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Annuler'),
-            ),
           ],
         ),
       ),
     );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  final IconData? icon;
+  final Widget child;
+  const _DetailRow({required this.icon, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+      if (icon != null) ...[
+        Icon(icon, size: 16, color: C.textTertiary),
+        const SizedBox(width: 10),
+      ] else
+        const SizedBox(width: 26),
+      child,
+    ]);
+  }
+}
+
+// ─── Karma Detail Sheet ────────────────────────────────────────────────────────
+
+class _KarmaDetailSheet extends StatelessWidget {
+  final Map<String, dynamic> karma;
+  const _KarmaDetailSheet({required this.karma});
+
+  String _fmt(int v) => v >= 1000 ? '${(v / 1000).toStringAsFixed(v % 1000 == 0 ? 0 : 1)}k' : '$v';
+
+  @override
+  Widget build(BuildContext context) {
+    final total = (karma['karma_total'] ?? 0) as int;
+    final daily = (karma['daily_completed'] ?? 0) as int;
+    final goal = (karma['daily_goal'] ?? 5) as int;
+    final weekly = (karma['weekly_completed'] ?? 0) as int;
+    final weeklyGoal = goal * 5;
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.88,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (ctx, sc) => Container(
+        decoration: const BoxDecoration(
+          color: C.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: ListView(
+          controller: sc,
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+          children: [
+            Center(child: Container(
+              width: 40, height: 4,
+              decoration: BoxDecoration(color: C.border, borderRadius: BorderRadius.circular(2)),
+            )),
+            const SizedBox(height: 20),
+
+            // Header
+            Row(children: [
+              Container(
+                width: 52, height: 52,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(colors: [C.primary, Color(0xFFCF3520)]),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Center(child: Text('⚡', style: TextStyle(fontSize: 26))),
+              ),
+              const SizedBox(width: 14),
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('Karma', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: C.textPrimary)),
+                Text('${_fmt(total)} points', style: const TextStyle(fontSize: 14, color: C.textSecondary)),
+              ]),
+            ]),
+
+            const SizedBox(height: 24),
+
+            // Stats card
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: C.surfaceAlt,
+                borderRadius: BorderRadius.circular(C.radiusLg),
+                border: Border.all(color: C.borderLight),
+              ),
+              child: Column(children: [
+                _KarmaStat(
+                  emoji: '🎯',
+                  label: "Aujourd'hui",
+                  current: daily,
+                  total: goal,
+                  color: C.primary,
+                ),
+                const SizedBox(height: 12),
+                _KarmaStat(
+                  emoji: '📅',
+                  label: 'Cette semaine',
+                  current: weekly,
+                  total: weeklyGoal > 0 ? weeklyGoal : 1,
+                  color: const Color(0xFF8b5cf6),
+                ),
+                const SizedBox(height: 12),
+                _KarmaStat(
+                  emoji: '⚡',
+                  label: 'Karma total',
+                  current: total,
+                  total: _kAchievements.last.karma,
+                  color: const Color(0xFFf59e0b),
+                ),
+              ]),
+            ),
+
+            const SizedBox(height: 28),
+
+            // Achievements
+            const Text('Succès', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: C.textPrimary)),
+            const SizedBox(height: 12),
+
+            ..._kAchievements.map((a) {
+              final unlocked = total >= a.karma;
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: unlocked ? C.primaryLight : C.surfaceAlt,
+                  borderRadius: BorderRadius.circular(C.radiusBase),
+                  border: Border.all(
+                    color: unlocked ? C.primary.withValues(alpha: 0.3) : C.borderLight,
+                  ),
+                ),
+                child: Row(children: [
+                  Text(
+                    unlocked ? a.icon : '🔒',
+                    style: TextStyle(fontSize: 26, color: unlocked ? null : const Color(0xFFcbd5e1)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(
+                      a.title,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: unlocked ? C.textPrimary : C.textTertiary,
+                      ),
+                    ),
+                    Text(
+                      a.desc,
+                      style: const TextStyle(fontSize: 12, color: C.textSecondary),
+                    ),
+                  ])),
+                  if (unlocked)
+                    const Icon(Icons.check_circle, color: C.primary, size: 18)
+                  else
+                    Text(
+                      _fmt(a.karma),
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: C.textTertiary),
+                    ),
+                ]),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _KarmaStat extends StatelessWidget {
+  final String emoji;
+  final String label;
+  final int current;
+  final int total;
+  final Color color;
+  const _KarmaStat({required this.emoji, required this.label, required this.current, required this.total, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final pct = (current / total).clamp(0.0, 1.0);
+    final currentStr = current >= 1000 ? '${(current / 1000).toStringAsFixed(1)}k' : '$current';
+    final totalStr = total >= 1000 ? '${(total / 1000).toStringAsFixed(0)}k' : '$total';
+    return Row(children: [
+      Text(emoji, style: const TextStyle(fontSize: 18)),
+      const SizedBox(width: 10),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Text(label, style: const TextStyle(fontSize: 12, color: C.textSecondary, fontWeight: FontWeight.w500)),
+          const Spacer(),
+          Text('$currentStr / $totalStr', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
+        ]),
+        const SizedBox(height: 5),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: pct,
+            minHeight: 6,
+            backgroundColor: color.withValues(alpha: 0.15),
+            valueColor: AlwaysStoppedAnimation<Color>(color),
+          ),
+        ),
+      ])),
+    ]);
   }
 }

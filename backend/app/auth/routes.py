@@ -86,7 +86,7 @@ def forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get_db)):
         )
         db.add(vc)
         db.commit()
-        send_verification_email(user.email, code, "password_reset")
+        send_verification_email(user.email, code, "password_reset")  # fire-and-forget — don't leak existence
     return {"message": "Si cet email existe, un code a été envoyé."}
 
 
@@ -175,7 +175,9 @@ def request_email_change(
     )
     db.add(vc)
     db.commit()
-    send_verification_email(new_email, code, "email_change")
+    sent = send_verification_email(new_email, code, "email_change")
+    if not sent:
+        raise HTTPException(status_code=500, detail="Échec de l'envoi de l'email. Vérifiez votre adresse email.")
     return {"message": f"Code de vérification envoyé à {new_email}"}
 
 

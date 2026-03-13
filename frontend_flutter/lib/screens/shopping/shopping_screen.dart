@@ -1,5 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:dio/dio.dart' as diohttp;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/api_client.dart';
 import '../../theme/app_theme.dart';
 
@@ -570,6 +576,13 @@ class _ProductPickerSheetState extends State<_ProductPickerSheet> {
   List<Map<String, dynamic>> _apiResults = [];
   bool _apiLoading = false;
   Timer? _debounce;
+  List<_ScannedProduct> _savedProducts = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedProducts();
+  }
 
   @override
   void dispose() {
@@ -619,6 +632,35 @@ class _ProductPickerSheetState extends State<_ProductPickerSheet> {
     });
   }
 
+  Future<void> _loadSavedProducts() async {
+    final products = await _SavedProductsStore.load();
+    if (mounted) setState(() => _savedProducts = products);
+  }
+
+  Future<void> _openBarcodeScanner() async {
+    final result = await Navigator.push<Map<String, String?>>(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => const _BarcodeScannerPage(),
+      ),
+    );
+    if (result != null && mounted) {
+      final name = result['name'];
+      final imageUrl = result['imageUrl'];
+      final barcode = result['barcode'];
+      if (name != null && name.isNotEmpty) {
+        _selectProduct(name, imageUrl: imageUrl);
+        if (barcode != null) {
+          await _SavedProductsStore.upsert(
+            _ScannedProduct(barcode: barcode, name: name, imageUrl: imageUrl),
+          );
+          _loadSavedProducts();
+        }
+      }
+    }
+  }
+
   void _submit() {
     final title = _customCtrl.text.trim().isNotEmpty
         ? _customCtrl.text.trim()
@@ -664,26 +706,53 @@ class _ProductPickerSheetState extends State<_ProductPickerSheet> {
               ),
             ),
           ),
-          // Search field
+          // Search field + barcode scanner button
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: TextField(
-              controller: _searchCtrl,
-              decoration: InputDecoration(
-                hintText: 'Rechercher un article...',
-                prefixIcon: const Icon(Icons.search, color: C.textSecondary),
-                isDense: true,
-                suffixIcon: _query.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, size: 18),
-                        onPressed: () {
-                          _searchCtrl.clear();
-                          _onQueryChanged('');
-                        },
-                      )
-                    : null,
-              ),
-              onChanged: _onQueryChanged,
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchCtrl,
+                    decoration: InputDecoration(
+                      hintText: 'Rechercher un article...',
+                      prefixIcon: const Icon(Icons.search, color: C.textSecondary),
+                      isDense: true,
+                      suffixIcon: _query.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear, size: 18),
+                              onPressed: () {
+                                _searchCtrl.clear();
+                                _onQueryChanged('');
+                              },
+                            )
+                          : null,
+                    ),
+                    onChanged: _onQueryChanged,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                InkWell(
+                  onTap: _openBarcodeScanner,
+                  borderRadius: BorderRadius.circular(C.radiusBase),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: C.primaryLight,
+                      borderRadius: BorderRadius.circular(C.radiusBase),
+                      border: Border.all(color: C.primary.withValues(alpha: 0.4)),
+                    ),
+                    child: const Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.camera_alt, color: C.primary, size: 20),
+                        SizedBox(height: 2),
+                        Text('Scanner', style: TextStyle(fontSize: 9, color: C.primary, fontWeight: FontWeight.w700)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 10),
@@ -841,58 +910,140 @@ class _ProductPickerSheetState extends State<_ProductPickerSheet> {
                         ),
                     ],
                   )
-                // ── No query: full common products grid ──
-                : _filteredCommon.isEmpty
-                    ? const Center(
-                        child: Text('Aucun produit trouvé', style: TextStyle(color: C.textSecondary)),
-                      )
-                    : GridView.builder(
-                        controller: widget.scrollController,
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 4,
-                          childAspectRatio: 0.85,
-                          crossAxisSpacing: 8,
-                          mainAxisSpacing: 8,
+                // ── No query: saved scanned products + full common products ──
+                : CustomScrollView(
+                    controller: widget.scrollController,
+                    slivers: [
+                      // Scanned products saved locally
+                      if (_savedProducts.isNotEmpty) ...[
+                        const SliverToBoxAdapter(
+                          child: Padding(
+                            padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
+                            child: Text('Mes produits scannés',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: C.textSecondary)),
+                          ),
                         ),
-                        itemCount: _filteredCommon.length,
-                        itemBuilder: (ctx, i) {
-                          final (emoji, name) = _filteredCommon[i];
-                          final isSelected = _selected == name && _customCtrl.text.trim().isEmpty;
-                          return GestureDetector(
-                            onTap: () => _selectProduct(name, imageUrl: 'emoji:$emoji'),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 150),
-                              decoration: BoxDecoration(
-                                color: isSelected ? C.primaryLight : C.surfaceAlt,
-                                borderRadius: BorderRadius.circular(C.radiusBase),
-                                border: Border.all(
-                                  color: isSelected ? C.primary : Colors.transparent,
-                                  width: 2,
-                                ),
-                              ),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(emoji, style: const TextStyle(fontSize: 24)),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    name,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w600,
-                                      color: isSelected ? C.primary : C.textSecondary,
+                        SliverToBoxAdapter(
+                          child: SizedBox(
+                            height: 92,
+                            child: ListView.separated(
+                              scrollDirection: Axis.horizontal,
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              itemCount: _savedProducts.length,
+                              separatorBuilder: (_, __) => const SizedBox(width: 8),
+                              itemBuilder: (ctx, i) {
+                                final p = _savedProducts[i];
+                                final isSel = _selected == p.name && _customCtrl.text.trim().isEmpty;
+                                return GestureDetector(
+                                  onTap: () => _selectProduct(p.name, imageUrl: p.imageUrl),
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 150),
+                                    width: 74,
+                                    decoration: BoxDecoration(
+                                      color: isSel ? C.primaryLight : C.surfaceAlt,
+                                      borderRadius: BorderRadius.circular(C.radiusBase),
+                                      border: Border.all(
+                                        color: isSel ? C.primary : Colors.transparent,
+                                        width: 2,
+                                      ),
+                                    ),
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        p.imageUrl != null
+                                            ? ClipRRect(
+                                                borderRadius: BorderRadius.circular(6),
+                                                child: Image.network(
+                                                  p.imageUrl!,
+                                                  width: 40, height: 40, fit: BoxFit.contain,
+                                                  errorBuilder: (_, __, ___) =>
+                                                    const Icon(Icons.shopping_bag_outlined, size: 28, color: C.textTertiary),
+                                                ),
+                                              )
+                                            : const Icon(Icons.qr_code, size: 28, color: C.textTertiary),
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          p.name,
+                                          maxLines: 1, overflow: TextOverflow.ellipsis,
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600,
+                                            color: isSel ? C.primary : C.textSecondary),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                ],
-                              ),
+                                );
+                              },
                             ),
-                          );
-                        },
+                          ),
+                        ),
+                        const SliverToBoxAdapter(child: SizedBox(height: 12)),
+                      ],
+                      // Common products label
+                      const SliverToBoxAdapter(
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
+                          child: Text('Produits courants',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: C.textSecondary)),
+                        ),
                       ),
+                      SliverPadding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        sliver: _filteredCommon.isEmpty
+                            ? const SliverFillRemaining(
+                                hasScrollBody: false,
+                                child: Center(child: Text('Aucun produit trouvé', style: TextStyle(color: C.textSecondary))),
+                              )
+                            : SliverGrid(
+                                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: 4,
+                                  childAspectRatio: 0.85,
+                                  crossAxisSpacing: 8,
+                                  mainAxisSpacing: 8,
+                                ),
+                                delegate: SliverChildBuilderDelegate(
+                                  (ctx, i) {
+                                    final (emoji, name) = _filteredCommon[i];
+                                    final isSelected = _selected == name && _customCtrl.text.trim().isEmpty;
+                                    return GestureDetector(
+                                      onTap: () => _selectProduct(name, imageUrl: 'emoji:$emoji'),
+                                      child: AnimatedContainer(
+                                        duration: const Duration(milliseconds: 150),
+                                        decoration: BoxDecoration(
+                                          color: isSelected ? C.primaryLight : C.surfaceAlt,
+                                          borderRadius: BorderRadius.circular(C.radiusBase),
+                                          border: Border.all(
+                                            color: isSelected ? C.primary : Colors.transparent,
+                                            width: 2,
+                                          ),
+                                        ),
+                                        child: Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Text(emoji, style: const TextStyle(fontSize: 24)),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              name,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w600,
+                                                color: isSelected ? C.primary : C.textSecondary,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  childCount: _filteredCommon.length,
+                                ),
+                              ),
+                      ),
+                    ],
+                  ),
           ),
 
           const SizedBox(height: 10),
@@ -1338,3 +1489,384 @@ class _EmptyLists extends StatelessWidget {
     );
   }
 }
+// ─── Scanned product model + local store ─────────────────────────────────────
+
+class _ScannedProduct {
+  final String barcode;
+  final String name;
+  final String? imageUrl;
+  const _ScannedProduct({required this.barcode, required this.name, this.imageUrl});
+
+  Map<String, dynamic> toJson() => {'barcode': barcode, 'name': name, 'imageUrl': imageUrl};
+  factory _ScannedProduct.fromJson(Map<String, dynamic> j) => _ScannedProduct(
+    barcode: j['barcode'] as String,
+    name: j['name'] as String,
+    imageUrl: j['imageUrl'] as String?,
+  );
+}
+
+class _SavedProductsStore {
+  static const _key = 'saved_scan_products_v1';
+
+  static Future<List<_ScannedProduct>> load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getStringList(_key) ?? [];
+    return raw
+        .map((s) {
+          try {
+            return _ScannedProduct.fromJson(json.decode(s) as Map<String, dynamic>);
+          } catch (_) {
+            return null;
+          }
+        })
+        .whereType<_ScannedProduct>()
+        .toList();
+  }
+
+  static Future<void> upsert(_ScannedProduct p) async {
+    final prefs = await SharedPreferences.getInstance();
+    final existing = await load();
+    final idx = existing.indexWhere((e) => e.barcode == p.barcode);
+    if (idx >= 0) {
+      existing[idx] = p;
+    } else {
+      existing.insert(0, p);
+    }
+    await prefs.setStringList(_key, existing.map((e) => json.encode(e.toJson())).toList());
+  }
+}
+
+// ─── Barcode scanner page ─────────────────────────────────────────────────────
+
+class _BarcodeScannerPage extends StatefulWidget {
+  const _BarcodeScannerPage();
+
+  @override
+  State<_BarcodeScannerPage> createState() => _BarcodeScannerPageState();
+}
+
+class _BarcodeScannerPageState extends State<_BarcodeScannerPage> {
+  late final MobileScannerController _ctrl;
+  bool _scanning = true;
+  bool _loading = false;
+  bool _notFound = false;
+  String? _foundName;
+  String? _foundImage;
+  String? _foundBarcode;
+
+  @override
+  void initState() {
+    super.initState();
+    // Use image_picker on all platforms: take a photo, then decode the barcode.
+    // This is more reliable than live camera on both web and native.
+    _ctrl = MobileScannerController(autoStart: false);
+
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  /// Shared: look up barcode on Open Food Facts and update state.
+  Future<void> _lookupBarcode(String barcode) async {
+    setState(() { _scanning = false; _loading = true; _foundBarcode = barcode; });
+    try {
+      final d = diohttp.Dio();
+      final res = await d.get(
+        'https://world.openfoodfacts.org/api/v2/product/$barcode.json',
+        options: diohttp.Options(
+          receiveTimeout: const Duration(seconds: 10),
+          sendTimeout: const Duration(seconds: 10),
+          headers: {'User-Agent': 'FamilyPlanner/1.0 (contact@familyplanner.app)'},
+        ),
+      );
+      final product = res.data['product'];
+      if (product != null) {
+        String name = '';
+        for (final key in ['product_name_fr', 'product_name', 'generic_name_fr', 'generic_name']) {
+          final v = (product[key] as String?)?.trim() ?? '';
+          if (v.isNotEmpty) { name = v; break; }
+        }
+        setState(() {
+          _foundName = name.isNotEmpty ? name : null;
+          _foundImage = product['image_front_url'] as String?
+              ?? product['image_url'] as String?;
+          _notFound = name.isEmpty;
+          _loading = false;
+        });
+      } else {
+        setState(() { _notFound = true; _loading = false; });
+      }
+    } catch (_) {
+      setState(() { _notFound = true; _loading = false; });
+    }
+  }
+
+  /// Open device camera, capture photo, decode barcode via analyzeImage.
+  /// Works on both native and mobile web (Chrome on Android).
+  Future<void> _pickAndScan() async {
+    final xfile = await ImagePicker().pickImage(
+      source: ImageSource.camera,
+      imageQuality: 90,
+    );
+    if (xfile == null || !mounted) return;
+    setState(() { _loading = true; });
+    try {
+      final capture = await _ctrl.analyzeImage(xfile.path);
+      final barcode = capture?.barcodes.firstOrNull?.rawValue;
+      if (barcode == null || barcode.isEmpty) {
+        setState(() { _loading = false; _notFound = true; _scanning = false; });
+        return;
+      }
+      await _lookupBarcode(barcode);
+    } catch (_) {
+      setState(() { _loading = false; _notFound = true; _scanning = false; });
+    }
+  }
+
+  /// Fallback: search by barcode number entered manually.
+  Future<void> _searchBarcodeManual(String barcode) async {
+    final code = barcode.trim();
+    if (code.isEmpty) return;
+    await _lookupBarcode(code);
+  }
+
+  void _rescan() {
+    setState(() {
+      _scanning = true;
+      _loading = false;
+      _notFound = false;
+      _foundName = null;
+      _foundImage = null;
+      _foundBarcode = null;
+    });
+    // image_picker approach: no live camera to restart
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: const Text('Scanner un produit'),
+        actions: [
+          if (!_scanning && !_loading)
+            TextButton.icon(
+              onPressed: _rescan,
+              icon: const Icon(Icons.qr_code_scanner, color: Colors.white54, size: 18),
+              label: const Text('Rescanner', style: TextStyle(color: Colors.white54, fontSize: 13)),
+            ),
+        ],
+      ),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Camera scanner — works on native AND mobile web (Chrome Android)
+          if (_scanning)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.qr_code_scanner, color: Colors.white38, size: 80),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Scanner un code-barres',
+                      style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Prenez une photo du code-barres\npour identifier le produit',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white60, fontSize: 13, height: 1.5),
+                    ),
+                    const SizedBox(height: 36),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _pickAndScan,
+                        icon: const Icon(Icons.camera_alt),
+                        label: const Text('Ouvrir la caméra'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          backgroundColor: C.primary,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextButton(
+                      onPressed: () {
+                        showDialog<String>(
+                          context: context,
+                          builder: (ctx) {
+                            final ctrl = TextEditingController();
+                            return AlertDialog(
+                              backgroundColor: const Color(0xFF1A1A1A),
+                              title: const Text('Saisir le code-barres', style: TextStyle(color: Colors.white)),
+                              content: TextField(
+                                controller: ctrl,
+                                autofocus: true,
+                                keyboardType: TextInputType.number,
+                                style: const TextStyle(color: Colors.white),
+                                decoration: const InputDecoration(
+                                  hintText: 'ex: 3017620425035',
+                                  hintStyle: TextStyle(color: Colors.white38),
+                                ),
+                              ),
+                              actions: [
+                                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
+                                TextButton(
+                                  onPressed: () => Navigator.pop(ctx, ctrl.text),
+                                  child: Text('Rechercher', style: TextStyle(color: C.primary)),
+                                ),
+                              ],
+                            );
+                          },
+                        ).then((code) { if (code != null && code.trim().isNotEmpty) _searchBarcodeManual(code); });
+                      },
+                      child: const Text(
+                        'Saisir le numéro manuellement',
+                        style: TextStyle(color: Colors.white38, fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          // Loading
+          if (_loading)
+            Container(
+              color: Colors.black87,
+              child: const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(color: C.primary),
+                    SizedBox(height: 16),
+                    Text(
+                      'Recherche du produit...',
+                      style: TextStyle(color: Colors.white70, fontSize: 15),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          // Not found
+          if (!_scanning && !_loading && _notFound)
+            Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('\u274C', style: TextStyle(fontSize: 52)),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'Produit non trouv\u00e9',
+                    style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Code: $_foundBarcode',
+                    style: const TextStyle(color: Colors.white38, fontSize: 12),
+                  ),
+                  const SizedBox(height: 36),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.qr_code_scanner),
+                      label: const Text('Scanner \u00e0 nouveau'),
+                      onPressed: _rescan,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          // Product found
+          if (!_scanning && !_loading && !_notFound && _foundName != null)
+            SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(32, 40, 32, 32),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (_foundImage != null)
+                      Container(
+                        width: 180,
+                        height: 180,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: Image.network(
+                            _foundImage!,
+                            fit: BoxFit.contain,
+                            loadingBuilder: (ctx, child, progress) =>
+                                progress == null ? child : const Center(child: CircularProgressIndicator()),
+                            errorBuilder: (_, __, ___) => const Icon(Icons.image_not_supported, color: Colors.grey, size: 60),
+                          ),
+                        ),
+                      )
+                    else
+                      const Icon(Icons.shopping_bag_outlined, color: Colors.white54, size: 90),
+                    const SizedBox(height: 24),
+                    Text(
+                      _foundName!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (_foundBarcode != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Code: $_foundBarcode',
+                        style: const TextStyle(color: Colors.white38, fontSize: 11),
+                      ),
+                    ],
+                    const SizedBox(height: 40),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.add_shopping_cart),
+                        label: const Text('Ajouter \u00e0 la liste'),
+                        onPressed: () => Navigator.pop(context, {
+                          'name': _foundName,
+                          'imageUrl': _foundImage,
+                          'barcode': _foundBarcode,
+                        }),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white70,
+                          side: const BorderSide(color: Colors.white24),
+                        ),
+                        icon: const Icon(Icons.qr_code_scanner, size: 18),
+                        label: const Text('Scanner un autre produit'),
+                        onPressed: _rescan,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+

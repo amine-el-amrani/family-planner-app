@@ -9,6 +9,19 @@ import '../../core/api_client.dart';
 import '../../providers/auth_provider.dart';
 import '../../theme/app_theme.dart';
 
+
+// ─── Achievement milestones (same as home_screen) ─────────────────────────────
+const _kAchievements = [
+  (icon: '🌱', title: 'Premier pas',   desc: '10 points karma',        karma: 10),
+  (icon: '⚡', title: 'Actif',         desc: '100 points karma',       karma: 100),
+  (icon: '🔥', title: 'Régulier',      desc: '500 points karma',       karma: 500),
+  (icon: '🏅', title: 'Champion',      desc: '1 000 points karma',     karma: 1000),
+  (icon: '🏆', title: 'Maître',        desc: '5 000 points karma',     karma: 5000),
+  (icon: '👑', title: 'Élite',         desc: '10 000 points karma',    karma: 10000),
+  (icon: '⭐', title: 'Légende',      desc: '20 000 points karma',    karma: 20000),
+];
+
+
 ImageProvider? _buildImageProvider(String? img) {
   if (img == null) return null;
   if (img.startsWith('data:')) {
@@ -54,7 +67,7 @@ class _FamilyDetailsScreenState extends State<FamilyDetailsScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _currentUserId = context.read<AuthProvider>().user?['id'] as int?;
     _loadData();
   }
@@ -384,7 +397,6 @@ class _FamilyDetailsScreenState extends State<FamilyDetailsScreen>
           isScrollable: true,
           tabs: const [
             Tab(text: 'À propos'),
-            Tab(text: 'Membres'),
             Tab(text: 'Événements'),
             Tab(text: 'Notes'),
           ],
@@ -421,12 +433,6 @@ class _FamilyDetailsScreenState extends State<FamilyDetailsScreen>
                       members: _members,
                       currentUserId: _currentUserId,
                       familyCreatorId: _family!['created_by_id'] as int?,
-                    ),
-                    _MembersTab(
-                      members: _members,
-                      currentUserId: _currentUserId,
-                      familyCreatorId: _family!['created_by_id'] as int?,
-                      onRemoveMember: _removeMember,
                     ),
                     _EventsTab(events: _events),
                     _NotesTab(
@@ -540,11 +546,13 @@ class _AboutTab extends StatelessWidget {
           Center(
             child: Column(
               children: [
-                GestureDetector(
-                  onTap: onPickImage,
-                  child: Stack(
-                    children: [
-                      CircleAvatar(
+                Stack(
+                  children: [
+                    GestureDetector(
+                      onTap: () {
+                        if (avatarImage != null) _openPhotoViewer(context, avatarImage!);
+                      },
+                      child: CircleAvatar(
                         radius: 72,
                         backgroundColor: C.primaryLight,
                         backgroundImage: avatarImage,
@@ -552,9 +560,12 @@ class _AboutTab extends StatelessWidget {
                             ? const Icon(Icons.group, color: C.primary, size: 56)
                             : null,
                       ),
-                      Positioned(
-                        bottom: 4,
-                        right: 4,
+                    ),
+                    Positioned(
+                      bottom: 4,
+                      right: 4,
+                      child: GestureDetector(
+                        onTap: onPickImage,
                         child: Container(
                           padding: const EdgeInsets.all(7),
                           decoration: BoxDecoration(
@@ -565,8 +576,8 @@ class _AboutTab extends StatelessWidget {
                           child: const Icon(Icons.camera_alt, color: Colors.white, size: 15),
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 14),
                 Text(
@@ -604,7 +615,9 @@ class _AboutTab extends StatelessWidget {
               final isCreator = m['id'] == familyCreatorId;
               final avatar = _buildImageProvider(m['profile_image']);
               final karma = m['karma_total'] as int? ?? 0;
-              return Container(
+              return GestureDetector(
+                onTap: () => _showMemberProfile(context, m, familyCreatorId),
+                child: Container(
                 margin: const EdgeInsets.only(bottom: 8),
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 decoration: BoxDecoration(
@@ -655,6 +668,7 @@ class _AboutTab extends StatelessWidget {
                     ),
                   ],
                 ),
+              ),
               );
             }),
           ],
@@ -1111,4 +1125,146 @@ class _NoteCard extends StatelessWidget {
       ),
     );
   }
+}
+// ─── Member profile helper ─────────────────────────────────────────────────────
+
+void _showMemberProfile(BuildContext context, Map<String, dynamic> member, int? creatorId) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _MemberProfileSheet(member: member, isCreator: member['id'] == creatorId),
+  );
+}
+
+class _MemberProfileSheet extends StatelessWidget {
+  final Map<String, dynamic> member;
+  final bool isCreator;
+  const _MemberProfileSheet({required this.member, required this.isCreator});
+
+  @override
+  Widget build(BuildContext context) {
+    final karma = (member['karma_total'] as int?) ?? 0;
+    final avatar = _buildImageProvider(member['profile_image']);
+    final name = member['full_name'] as String? ?? '';
+    final email = member['email'] as String? ?? '';
+    String _fmt(int v) => v >= 1000 ? '${(v / 1000).toStringAsFixed(v % 1000 == 0 ? 0 : 1)}k' : '$v';
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      minChildSize: 0.4,
+      maxChildSize: 0.92,
+      expand: false,
+      builder: (ctx, sc) => Container(
+        decoration: const BoxDecoration(
+          color: C.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: ListView(
+          controller: sc,
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+          children: [
+            Center(child: Container(
+              width: 40, height: 4,
+              decoration: BoxDecoration(color: C.border, borderRadius: BorderRadius.circular(2)),
+            )),
+            const SizedBox(height: 20),
+            // Avatar + name
+            Center(child: Column(children: [
+              GestureDetector(
+              onTap: () {
+                if (avatar != null) _openPhotoViewer(context, avatar);
+              },
+              child: CircleAvatar(
+                radius: 44,
+                backgroundColor: C.primaryLight,
+                backgroundImage: avatar,
+                child: avatar == null
+                    ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?',
+                        style: const TextStyle(color: C.primary, fontWeight: FontWeight.w800, fontSize: 30))
+                    : null,
+              ),
+            ),
+              const SizedBox(height: 12),
+              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Text(name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: C.textPrimary)),
+                if (isCreator) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(color: C.primaryLight, borderRadius: BorderRadius.circular(10)),
+                    child: const Text('Admin', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: C.primary)),
+                  ),
+                ],
+              ]),
+              const SizedBox(height: 4),
+              Text(email, style: const TextStyle(fontSize: 13, color: C.textSecondary)),
+            ])),
+            const SizedBox(height: 24),
+            // Karma pill
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(colors: [C.primary, Color(0xFFCF3520)]),
+                borderRadius: BorderRadius.circular(C.radiusLg),
+              ),
+              child: Row(children: [
+                const Text('⚡', style: TextStyle(fontSize: 28)),
+                const SizedBox(width: 12),
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('KARMA', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.8)),
+                  Text(_fmt(karma), style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w800)),
+                ]),
+              ]),
+            ),
+            const SizedBox(height: 24),
+            // Achievements
+            const Text('Succ\u00e8s', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: C.textPrimary)),
+            const SizedBox(height: 12),
+            ..._kAchievements.map((a) {
+              final unlocked = karma >= a.karma;
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: unlocked ? C.primaryLight : C.surfaceAlt,
+                  borderRadius: BorderRadius.circular(C.radiusBase),
+                  border: Border.all(color: unlocked ? C.primary.withValues(alpha: 0.3) : C.borderLight),
+                ),
+                child: Row(children: [
+                  Text(unlocked ? a.icon : '🔒', style: const TextStyle(fontSize: 24)),
+                  const SizedBox(width: 12),
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(a.title, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700,
+                      color: unlocked ? C.textPrimary : C.textTertiary)),
+                    Text(a.desc, style: const TextStyle(fontSize: 12, color: C.textSecondary)),
+                  ])),
+                  if (unlocked)
+                    const Icon(Icons.check_circle, color: C.primary, size: 18)
+                  else
+                    Text(_fmt(a.karma), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: C.textTertiary)),
+                ]),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+void _openPhotoViewer(BuildContext context, ImageProvider image) {
+  showDialog(
+    context: context,
+    barrierColor: Colors.black87,
+    barrierDismissible: true,
+    builder: (ctx) => GestureDetector(
+      onTap: () => Navigator.of(ctx).pop(),
+      child: Center(
+        child: InteractiveViewer(
+          child: Image(image: image),
+        ),
+      ),
+    ),
+  );
 }

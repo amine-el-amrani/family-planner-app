@@ -68,13 +68,14 @@ def send_verification_email(to_email: str, code: str, purpose: str) -> bool:
     msg.attach(MIMEText(_build_html(code, action), "html"))
 
     try:
-        with smtplib.SMTP("smtp-relay.brevo.com", 587) as server:
+        with smtplib.SMTP("smtp-relay.brevo.com", 587, timeout=15) as server:
             server.ehlo()
             server.starttls()
+            server.ehlo()
             server.login(SMTP_USER, SMTP_KEY)
             server.sendmail(SMTP_USER, to_email, msg.as_string())
-        print(f"[EMAIL OK] Sent {purpose} code to {to_email}")
+        print(f"[EMAIL OK] Sent {purpose} code to {to_email}", flush=True)
         return True
     except Exception as e:
-        print(f"[EMAIL ERROR] {e}")
+        print(f"[EMAIL ERROR] {type(e).__name__}: {e}", flush=True)
         return False

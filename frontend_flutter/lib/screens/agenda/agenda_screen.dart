@@ -198,7 +198,57 @@ class _AgendaScreenState extends State<AgendaScreen> {
   }
 
 
-  void _showAddForDay() {
+  void _showFabChoiceModal() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: C.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Ajouter', style: TextStyle(fontWeight: FontWeight.w700, color: C.textPrimary)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _AgendaChoiceItem(
+              icon: Icons.check_circle_outline,
+              label: 'Tâche',
+              color: C.primary,
+              onTap: () {
+                Navigator.pop(ctx);
+                _showAddTaskForDay();
+              },
+            ),
+            const SizedBox(height: 10),
+            _AgendaChoiceItem(
+              icon: Icons.event_outlined,
+              label: 'Événement',
+              color: C.blue,
+              onTap: () {
+                Navigator.pop(ctx);
+                _showAddEventForDay();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showAddTaskForDay() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _AgendaAddTaskSheet(
+        selectedDay: _selectedDay,
+        onCreated: () {
+          _loadDayData(_selectedDay);
+          _loadMonthData(_focusedDay);
+        },
+      ),
+    );
+  }
+
+  void _showAddEventForDay() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -276,7 +326,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
     return Scaffold(
       backgroundColor: C.background,
       floatingActionButton: FloatingActionButton(
-        onPressed: _showAddForDay,
+        onPressed: _showFabChoiceModal,
         backgroundColor: C.primary,
         child: const Icon(Icons.add, color: Colors.white),
       ),
@@ -352,6 +402,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
               ),
               headerStyle: const HeaderStyle(
                 formatButtonVisible: true,
+                formatButtonShowsNext: false,
                 titleCentered: true,
                 formatButtonDecoration: BoxDecoration(
                   color: C.primaryLight,
@@ -824,14 +875,23 @@ class _TaskItem extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      task['title'] ?? '',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: isDone ? C.textTertiary : C.textPrimary,
-                        decoration: isDone ? TextDecoration.lineThrough : null,
-                      ),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            task['title'] ?? '',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: isDone ? C.textTertiary : C.textPrimary,
+                              decoration: isDone ? TextDecoration.lineThrough : null,
+                            ),
+                          ),
+                        ),
+                        if (task['category'] != null)
+                          _AgendaCategoryPill(category: task['category'] as String),
+                      ],
                     ),
                     if (familyName != null || assignedName != null) ...[
                       const SizedBox(height: 4),
@@ -1601,6 +1661,33 @@ class _AgendaDetailRow extends StatelessWidget {
   }
 }
 
+class _AgendaCategoryPill extends StatelessWidget {
+  final String category;
+  const _AgendaCategoryPill({required this.category});
+
+  @override
+  Widget build(BuildContext context) {
+    Color color = const Color(0xFF94a3b8);
+    String emoji = '';
+    for (final c in _kCategories) {
+      if (c.$1 == category) { color = c.$2; emoji = c.$3; break; }
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(C.radiusFull),
+        border: Border.all(color: color.withValues(alpha: 0.4), width: 1),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        if (emoji.isNotEmpty) Text(emoji, style: const TextStyle(fontSize: 11)),
+        if (emoji.isNotEmpty) const SizedBox(width: 3),
+        Text(category, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: color)),
+      ]),
+    );
+  }
+}
+
 class _AgendaChip extends StatelessWidget {
   final String label;
   final IconData? icon;
@@ -1955,6 +2042,317 @@ class _TypeToggleButton extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+// ─── Agenda FAB choice item ───────────────────────────────────────────────────
+
+class _AgendaChoiceItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+  const _AgendaChoiceItem({required this.icon, required this.label, required this.color, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(C.radiusBase),
+          border: Border.all(color: color.withValues(alpha: 0.25)),
+        ),
+        child: Row(children: [
+          Icon(icon, color: color, size: 22),
+          const SizedBox(width: 12),
+          Text(label, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: color)),
+          const Spacer(),
+          Icon(Icons.arrow_forward_ios, size: 14, color: color.withValues(alpha: 0.5)),
+        ]),
+      ),
+    );
+  }
+}
+
+// ─── Full task creation sheet for Agenda ─────────────────────────────────────
+
+class _AgendaAddTaskSheet extends StatefulWidget {
+  final DateTime selectedDay;
+  final VoidCallback onCreated;
+  const _AgendaAddTaskSheet({required this.selectedDay, required this.onCreated});
+
+  @override
+  State<_AgendaAddTaskSheet> createState() => _AgendaAddTaskSheetState();
+}
+
+class _AgendaAddTaskSheetState extends State<_AgendaAddTaskSheet> {
+  final _api = ApiClient();
+  final _titleCtrl = TextEditingController();
+  final _descCtrl = TextEditingController();
+  String _priority = 'normale';
+  String _visibility = 'prive';
+  String? _category;
+  late DateTime _dueDate;
+  int? _familyId;
+  int? _assignedToId;
+  List<Map<String, dynamic>> _families = [];
+  List<Map<String, dynamic>> _familyMembers = [];
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _dueDate = widget.selectedDay;
+    _fetchFamilies();
+  }
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    _descCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetchFamilies() async {
+    try {
+      final res = await _api.dio.get('/families/');
+      if (mounted) {
+        setState(() {
+          _families = List<Map<String, dynamic>>.from(
+            (res.data as List).map((e) => Map<String, dynamic>.from(e)));
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _submit() async {
+    if (_titleCtrl.text.trim().isEmpty) return;
+    setState(() => _saving = true);
+    try {
+      await _api.dio.post('/tasks/', data: {
+        'title': _titleCtrl.text.trim(),
+        if (_descCtrl.text.trim().isNotEmpty) 'description': _descCtrl.text.trim(),
+        'priority': _priority,
+        'visibility': _visibility,
+        'due_date': DateFormat('yyyy-MM-dd').format(_dueDate),
+        if (_familyId != null) 'family_id': _familyId,
+        if (_assignedToId != null) 'assigned_to_id': _assignedToId,
+        if (_category != null) 'category': _category,
+      });
+      if (mounted) Navigator.pop(context);
+      widget.onCreated();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Erreur lors de la cr\u00e9ation'),
+          backgroundColor: C.destructive,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: C.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(child: Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(color: C.border, borderRadius: BorderRadius.circular(2)),
+              )),
+              const SizedBox(height: 14),
+              const Text('Nouvelle t\u00e2che', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: C.textPrimary)),
+              const SizedBox(height: 14),
+              // Title
+              TextField(
+                controller: _titleCtrl,
+                autofocus: true,
+                decoration: const InputDecoration(hintText: 'Titre de la t\u00e2che'),
+              ),
+              const SizedBox(height: 10),
+              // Description
+              TextField(
+                controller: _descCtrl,
+                decoration: const InputDecoration(hintText: 'Description (optionnel)'),
+                maxLines: 2,
+              ),
+              const SizedBox(height: 14),
+              // Due date (pre-filled with selected day)
+              GestureDetector(
+                onTap: () async {
+                  final d = await showDatePicker(
+                    context: context,
+                    initialDate: _dueDate,
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime(2030),
+                    locale: const Locale('fr', 'FR'),
+                  );
+                  if (d != null) setState(() => _dueDate = d);
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: C.primaryLight,
+                    borderRadius: BorderRadius.circular(C.radiusBase),
+                    border: Border.all(color: C.primary.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(children: [
+                    const Icon(Icons.calendar_today_outlined, size: 16, color: C.primary),
+                    const SizedBox(width: 8),
+                    Text(DateFormat('EEE d MMM', 'fr_FR').format(_dueDate),
+                      style: const TextStyle(fontSize: 14, color: C.primary, fontWeight: FontWeight.w600)),
+                    const Spacer(),
+                    const Icon(Icons.edit_outlined, size: 14, color: C.primary),
+                  ]),
+                ),
+              ),
+              const SizedBox(height: 14),
+              // Priority
+              const Text('Priorit\u00e9', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: C.textSecondary)),
+              const SizedBox(height: 8),
+              Row(children: [
+                for (final p in [('normale', 'Normale'), ('haute', 'Haute'), ('urgente', 'Urgente')]) ...[
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => _priority = p.$1),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        margin: const EdgeInsets.only(right: 6),
+                        decoration: BoxDecoration(
+                          color: _priority == p.$1
+                              ? (p.$1 == 'urgente' ? const Color(0xFFfee2e2) : p.$1 == 'haute' ? const Color(0xFFffedd5) : C.primaryLight)
+                              : C.surfaceAlt,
+                          borderRadius: BorderRadius.circular(C.radiusSm),
+                          border: Border.all(color: _priority == p.$1 ? C.primary.withValues(alpha: 0.4) : C.border),
+                        ),
+                        child: Text(p.$2, textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
+                            color: _priority == p.$1 ? C.textPrimary : C.textSecondary)),
+                      ),
+                    ),
+                  ),
+                ],
+              ]),
+              const SizedBox(height: 14),
+              // Visibility
+              const Text('Visibilit\u00e9', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: C.textSecondary)),
+              const SizedBox(height: 8),
+              Row(children: [
+                for (final v in [('prive', 'Priv\u00e9e', Icons.lock_outline), ('famille', 'Famille', Icons.group_outlined)]) ...[
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() {
+                        _visibility = v.$1;
+                        if (v.$1 == 'prive') { _familyId = null; _familyMembers = []; _assignedToId = null; }
+                      }),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        margin: const EdgeInsets.only(right: 6),
+                        decoration: BoxDecoration(
+                          color: _visibility == v.$1 ? C.primaryLight : C.surfaceAlt,
+                          borderRadius: BorderRadius.circular(C.radiusSm),
+                          border: Border.all(color: _visibility == v.$1 ? C.primary.withValues(alpha: 0.4) : C.border),
+                        ),
+                        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                          Icon(v.$3, size: 14, color: _visibility == v.$1 ? C.primary : C.textSecondary),
+                          const SizedBox(width: 4),
+                          Text(v.$2, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
+                            color: _visibility == v.$1 ? C.primary : C.textSecondary)),
+                        ]),
+                      ),
+                    ),
+                  ),
+                ],
+              ]),
+              // Family selector
+              if (_visibility == 'famille' && _families.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                DropdownButtonFormField<int>(
+                  value: _familyId,
+                  decoration: const InputDecoration(hintText: 'Choisir une famille'),
+                  items: _families.map((f) => DropdownMenuItem<int>(value: f['id'], child: Text(f['name'] ?? ''))).toList(),
+                  onChanged: (v) async {
+                    setState(() { _familyId = v; _familyMembers = []; _assignedToId = null; });
+                    if (v != null) {
+                      try {
+                        final res = await _api.dio.get('/families/$v/members');
+                        if (mounted) setState(() {
+                          _familyMembers = List<Map<String, dynamic>>.from(
+                            (res.data as List).map((e) => Map<String, dynamic>.from(e)));
+                        });
+                      } catch (_) {}
+                    }
+                  },
+                ),
+              ],
+              // Assign to
+              if (_familyMembers.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                DropdownButtonFormField<int>(
+                  value: _assignedToId,
+                  decoration: const InputDecoration(hintText: 'Assigner \u00e0 (optionnel)'),
+                  items: [
+                    const DropdownMenuItem<int>(value: null, child: Text('Non assign\u00e9')),
+                    ..._familyMembers.map((m) => DropdownMenuItem<int>(value: m['id'], child: Text(m['full_name'] ?? ''))),
+                  ],
+                  onChanged: (v) => setState(() => _assignedToId = v),
+                ),
+              ],
+              const SizedBox(height: 14),
+              // Category
+              const Text('Cat\u00e9gorie (optionnel)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: C.textSecondary)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: _kCategories.map((cat) {
+                  final selected = _category == cat.$1;
+                  return GestureDetector(
+                    onTap: () => setState(() => _category = selected ? null : cat.$1),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: selected ? cat.$2.withValues(alpha: 0.15) : C.surfaceAlt,
+                        borderRadius: BorderRadius.circular(C.radiusFull),
+                        border: Border.all(color: selected ? cat.$2 : C.border, width: 1.2),
+                      ),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Text(cat.$3, style: const TextStyle(fontSize: 14)),
+                        const SizedBox(width: 4),
+                        Text(cat.$1, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
+                          color: selected ? cat.$2 : C.textSecondary)),
+                      ]),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: _saving ? null : _submit,
+                child: _saving
+                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Text('Ajouter la t\u00e2che'),
+              ),
+            ],
+          ),
         ),
       ),
     );
