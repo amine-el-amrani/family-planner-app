@@ -75,6 +75,59 @@ def _fetch_paris_prayer_times() -> dict[str, str] | None:
         return None
 
 
+def run_prayer_tasks_for_family(family, db) -> None:
+    """Create today's prayer tasks for a single family using an existing DB session."""
+    today = date.today()
+    timings = _fetch_paris_prayer_times()
+    if not timings:
+        logger.warning("[daily_jobs] No prayer timings fetched, skipping prayer tasks for family %s", family.id)
+        return
+    for member in family.members:
+        for prayer_name, prayer_time in timings.items():
+            title = f"🕌 Prière {prayer_name} — {prayer_time}"
+            existing = db.query(Task).filter(
+                Task.title == title,
+                Task.family_id == family.id,
+                Task.assigned_to_id == member.id,
+                Task.due_date == today,
+            ).first()
+            if existing:
+                continue
+            db.add(Task(
+                title=title,
+                description=f"Prière {prayer_name} à {prayer_time} (heure de Paris)",
+                status=TaskStatus.en_attente,
+                priority=TaskPriority.normale,
+                visibility=TaskVisibility.famille,
+                family_id=family.id,
+                created_by_id=family.created_by_id,
+                assigned_to_id=member.id,
+                due_date=today,
+            ))
+
+
+def run_motivation_message_for_family(family, db) -> None:
+    """Create today's motivation message for a single family using an existing DB session."""
+    today = date.today()
+    existing = db.query(DailyMessage).filter(
+        DailyMessage.family_id == family.id,
+        DailyMessage.date == today,
+    ).first()
+    if existing:
+        return
+    day_of_year = today.timetuple().tm_yday
+    quote = _QUOTES[(day_of_year + family.id) % len(_QUOTES)]
+    db.add(DailyMessage(family_id=family.id, message=quote, date=today))
+    for member in family.members:
+        db.add(Notification(
+            message=f"💬 Message du jour : {quote}",
+            user_id=member.id,
+            created_by_id=family.created_by_id,
+        ))
+        if member.push_token:
+            send_push(member.push_token, "💬 Message du jour", quote, url="/home")
+
+
 def create_daily_prayer_tasks() -> None:
     """For each family with prayer_enabled, create 5 prayer tasks for all members."""
     db = SessionLocal()

@@ -11,6 +11,7 @@ from app.auth.deps import get_current_user
 from app.users.models import User
 from app.notifications.models import Notification
 from app.notifications.push import send_push
+from app.families.daily_jobs import run_prayer_tasks_for_family, run_motivation_message_for_family
 
 router = APIRouter(prefix="/families", tags=["Families"])
 
@@ -329,9 +330,15 @@ def update_family_settings(
     if family.created_by_id != current_user.id:
         raise HTTPException(status_code=403, detail="Only the family creator can change settings")
     if body.prayer_enabled is not None:
+        activating_prayer = body.prayer_enabled and not family.prayer_enabled
         family.prayer_enabled = body.prayer_enabled
+        if activating_prayer:
+            run_prayer_tasks_for_family(family, db)
     if body.motivation_enabled is not None:
+        activating_motivation = body.motivation_enabled and not family.motivation_enabled
         family.motivation_enabled = body.motivation_enabled
+        if activating_motivation:
+            run_motivation_message_for_family(family, db)
     db.commit()
     return {"prayer_enabled": family.prayer_enabled, "motivation_enabled": family.motivation_enabled}
 
