@@ -24,7 +24,9 @@ from app.notifications.routes import router as notifications_router
 from app.shopping.routes import router as shopping_router
 from app.notes.routes import router as notes_router
 from app.reminders import send_daily_reminders
-from app.families.daily_jobs import create_daily_prayer_tasks, create_daily_motivation_messages
+from app.families.daily_jobs import create_daily_prayer_tasks, create_daily_motivation_messages, generate_recurring_tasks
+from app.tasks.models import RecurringTask  # noqa: F401 – ensures table is registered with Base
+from app.recurring_tasks.routes import router as recurring_tasks_router
 
 scheduler = AsyncIOScheduler()
 logger = logging.getLogger(__name__)
@@ -92,6 +94,7 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(create_daily_prayer_tasks, "cron", hour=4, minute=30, timezone="Europe/Paris", id="daily_prayers")
     # Motivation messages at 07:00 Paris time
     scheduler.add_job(create_daily_motivation_messages, "cron", hour=7, minute=0, timezone="Europe/Paris", id="daily_motivation")
+    scheduler.add_job(generate_recurring_tasks, "cron", hour=0, minute=5, timezone="Europe/Paris", id="recurring_tasks")
     scheduler.start()
     yield
     scheduler.shutdown()
@@ -120,6 +123,7 @@ app.include_router(tasks_router)
 app.include_router(notifications_router)
 app.include_router(shopping_router)
 app.include_router(notes_router)
+app.include_router(recurring_tasks_router)
 
 
 @app.get("/")

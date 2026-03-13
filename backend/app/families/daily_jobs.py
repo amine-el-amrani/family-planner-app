@@ -128,6 +128,29 @@ def run_motivation_message_for_family(family, db) -> None:
             send_push(member.push_token, "💬 Message du jour", quote, url="/home")
 
 
+def generate_recurring_tasks() -> None:
+    """Generate today's task instances for all active recurring tasks."""
+    from app.tasks.models import RecurringTask
+    from app.recurring_tasks.routes import _should_run_today, _create_task_instance
+
+    db = SessionLocal()
+    try:
+        today = date.today()
+        rts = db.query(RecurringTask).filter(RecurringTask.is_active == True).all()  # noqa: E712
+        for rt in rts:
+            if rt.last_generated_date == today:
+                continue
+            if _should_run_today(rt, today):
+                _create_task_instance(rt, today, db)
+        db.commit()
+        logger.info(f"[daily_jobs] Recurring tasks generated for {today}")
+    except Exception as e:
+        logger.error(f"[daily_jobs] Error generating recurring tasks: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
 def create_daily_prayer_tasks() -> None:
     """For each family with prayer_enabled, create 5 prayer tasks for all members."""
     db = SessionLocal()
