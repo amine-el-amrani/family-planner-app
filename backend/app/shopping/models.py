@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Text
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -34,3 +34,16 @@ class ShoppingItem(Base):
     shopping_list = relationship("ShoppingList", back_populates="items")
     added_by = relationship("User", foreign_keys=[added_by_id])
     checked_by = relationship("User", foreign_keys=[checked_by_id])
+
+
+class CustomProduct(Base):
+    __tablename__ = "custom_products"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    image_url = Column(Text, nullable=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    family_id = Column(Integer, ForeignKey("families.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    created_by = relationship("User", foreign_keys=[created_by_id])

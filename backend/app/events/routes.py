@@ -1,6 +1,9 @@
+import os
+import uuid
+import base64
 from typing import Optional
 from datetime import date, datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -31,6 +34,8 @@ def _event_to_dict(event: Event, family_name: str = None) -> dict:
         "date": str(event.date),
         "time_from": str(event.time_from) if event.time_from else None,
         "time_to": str(event.time_to) if event.time_to else None,
+        "category": event.category,
+        "image_url": event.image_url,
         "family_id": event.family_id,
         "family_name": family_name or (event.family.name if event.family else None),
         "created_by_id": event.created_by_id,
@@ -73,6 +78,7 @@ def create_event(
         date=event_data.event_date,
         time_from=event_data.time_from,
         time_to=event_data.time_to,
+        category=event_data.category,
         family_id=family.id,
         created_by_id=current_user.id,
     )
@@ -137,6 +143,8 @@ def update_event(
         event.time_from = event_data.time_from
     if event_data.time_to is not None:
         event.time_to = event_data.time_to
+    if event_data.category is not None:
+        event.category = event_data.category
 
     push_targets = []
     for member in event.family.members:
@@ -190,6 +198,27 @@ def delete_event(
 
     for push_token in push_targets:
         send_push(push_token, "Événement supprimé", f"'{event_title}' supprimé par {current_user.full_name}")
+
+
+@router.post("/{event_id}/image")
+def upload_event_image(
+    event_id: int,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Événement introuvable")
+    if event.created_by_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Seul le créateur peut modifier cet événement")
+    data = file.file.read()
+    b64 = base64.b64encode(data).decode("utf-8")
+    mime = file.content_type or "image/jpeg"
+    event.image_url = f"data:{mime};base64,{b64}"
+    db.commit()
+    db.refresh(event)
+    return {"image_url": event.image_url}
 
 
 @router.patch("/{event_id}/rsvp")

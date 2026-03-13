@@ -10,6 +10,7 @@ class EventCreate(BaseModel):
     time_from: Optional[time] = None
     time_to: Optional[time] = None
     family_id: int
+    category: Optional[str] = None
 
 
 class EventUpdate(BaseModel):
@@ -18,3 +19,4 @@ class EventUpdate(BaseModel):
     event_date: Optional[date] = None
     time_from: Optional[time] = None
     time_to: Optional[time] = None
+    category: Optional[str] = None

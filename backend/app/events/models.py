@@ -21,6 +21,8 @@ class Event(Base):
     date = Column(Date, nullable=False)
     time_from = Column(Time, nullable=True)
     time_to = Column(Time, nullable=True)
+    category = Column(String, nullable=True)
+    image_url = Column(String, nullable=True)
 
     family_id = Column(Integer, ForeignKey("families.id"), nullable=False)
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)

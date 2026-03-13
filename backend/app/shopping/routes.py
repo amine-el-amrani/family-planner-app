@@ -1,6 +1,7 @@
+import base64
 import logging
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from app.notifications.push import send_push
 
 logger = logging.getLogger(__name__)
@@ -11,7 +12,7 @@ from app.database import get_db
 from app.auth.deps import get_current_user
 from app.users.models import User
 from app.families.models import Family
-from app.shopping.models import ShoppingList, ShoppingItem
+from app.shopping.models import ShoppingList, ShoppingItem, CustomProduct
 
 router = APIRouter(prefix="/shopping", tags=["Shopping"])
 
@@ -205,16 +206,75 @@ def delete_item(
     db.commit()
 
 
+@router.post("/custom-products")
+def create_custom_product(
+    name: str = Form(...),
+    family_id: Optional[int] = Form(None),
+    file: Optional[UploadFile] = File(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Save a custom product (name + optional photo) to the database."""
+    image_url = None
+    if file and file.filename:
+        data = file.file.read()
+        b64 = base64.b64encode(data).decode("utf-8")
+        mime = file.content_type or "image/jpeg"
+        image_url = f"data:{mime};base64,{b64}"
+
+    product = CustomProduct(
+        name=name.strip(),
+        image_url=image_url,
+        created_by_id=current_user.id,
+        family_id=family_id,
+    )
+    db.add(product)
+    db.commit()
+    db.refresh(product)
+    return {"id": product.id, "name": product.name, "image": product.image_url}
+
+
+@router.get("/custom-products")
+def get_custom_products(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return custom products created by the current user or any of their families."""
+    family_ids = [f.id for f in current_user.families]
+    products = db.query(CustomProduct).filter(
+        (CustomProduct.created_by_id == current_user.id) |
+        (CustomProduct.family_id.in_(family_ids))
+    ).order_by(CustomProduct.created_at.desc()).all()
+    return [{"id": p.id, "name": p.name, "image": p.image_url} for p in products]
+
+
 @router.get("/search-products")
 def search_products(
     q: str = Query(default="", min_length=0),
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """Search products via Open Food Facts (server-side proxy to avoid CORS)."""
     import requests as _requests
     q = q.strip()
     if len(q) < 2:
         return []
+
+    # Include matching custom products first
+    custom_results = []
+    try:
+        family_ids = [f.id for f in current_user.families]
+        custom_products = db.query(CustomProduct).filter(
+            (CustomProduct.created_by_id == current_user.id) |
+            (CustomProduct.family_id.in_(family_ids))
+        ).all()
+        q_lower = q.lower()
+        for p in custom_products:
+            if q_lower in p.name.lower():
+                custom_results.append({"name": p.name, "brand": "Personnalisé", "image": p.image_url, "custom": True})
+    except Exception as e:
+        logger.error(f"Custom product search failed: {e}")
+
     try:
         # search.openfoodfacts.org is the Elasticsearch-based API — much faster than world.OFF
         resp = _requests.get(
@@ -269,10 +329,10 @@ def search_products(
             if len(results) >= 15:
                 break
         logger.info(f"Product search '{q}': {len(results)} results (total={data.get('total', {}).get('value', '?')})")
-        return results
+        return custom_results + results
     except Exception as e:
         logger.error(f"Product search '{q}' failed: {e}")
-        return []
+        return custom_results
 
 
 @router.delete("/lists/{list_id}/checked", status_code=204)

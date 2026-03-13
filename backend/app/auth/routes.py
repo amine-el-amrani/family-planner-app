@@ -144,66 +144,25 @@ def change_password(
 
 # ─── Change email (authenticated) ─────────────────────────────────────────────
 
-class RequestEmailChangeRequest(BaseModel):
+class ChangeEmailRequest(BaseModel):
     new_email: str
+    current_password: str
 
 
-class VerifyEmailChangeRequest(BaseModel):
-    new_email: str
-    code: str
-
-
-@router.post("/request-email-change")
-def request_email_change(
-    body: RequestEmailChangeRequest,
+@router.post("/change-email")
+def change_email(
+    body: ChangeEmailRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if not verify_password(body.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Mot de passe incorrect")
     new_email = body.new_email.lower().strip()
+    if not new_email:
+        raise HTTPException(status_code=400, detail="Email invalide")
     existing = db.query(User).filter(User.email == new_email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Cet email est déjà utilisé")
-
-    _invalidate_old_codes(db, current_user.email, "email_change")
-    code = _generate_code()
-    vc = VerificationCode(
-        email=current_user.email,
-        code=code,
-        purpose="email_change",
-        new_email=new_email,
-        expires_at=datetime.utcnow() + timedelta(minutes=CODE_TTL_MINUTES),
-    )
-    db.add(vc)
-    db.commit()
-    sent = send_verification_email(new_email, code, "email_change")
-    if not sent:
-        raise HTTPException(status_code=500, detail="Échec de l'envoi de l'email. Vérifiez votre adresse email.")
-    return {"message": f"Code de vérification envoyé à {new_email}"}
-
-
-@router.post("/verify-email-change")
-def verify_email_change(
-    body: VerifyEmailChangeRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    new_email = body.new_email.lower().strip()
-    vc = (
-        db.query(VerificationCode)
-        .filter(
-            VerificationCode.email == current_user.email,
-            VerificationCode.code == body.code,
-            VerificationCode.purpose == "email_change",
-            VerificationCode.new_email == new_email,
-            VerificationCode.used == False,
-            VerificationCode.expires_at > datetime.utcnow(),
-        )
-        .first()
-    )
-    if not vc:
-        raise HTTPException(status_code=400, detail="Code invalide ou expiré")
-
     current_user.email = new_email
-    vc.used = True
     db.commit()
     return {"message": "Email mis à jour avec succès"}
