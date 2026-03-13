@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.database import Base
 from app.users.models import User
-from app.families.models import Family, user_family_table, FamilyInvitation
+from app.families.models import Family, user_family_table, FamilyInvitation, DailyMessage
 from app.events.models import Event
 from app.tasks.models import Task
 from app.notifications.models import Notification
@@ -24,6 +24,7 @@ from app.notifications.routes import router as notifications_router
 from app.shopping.routes import router as shopping_router
 from app.notes.routes import router as notes_router
 from app.reminders import send_daily_reminders
+from app.families.daily_jobs import create_daily_prayer_tasks, create_daily_motivation_messages
 
 scheduler = AsyncIOScheduler()
 logger = logging.getLogger(__name__)
@@ -87,6 +88,10 @@ async def lifespan(app: FastAPI):
 
     # Daily reminder at 08:00 every day
     scheduler.add_job(send_daily_reminders, "cron", hour=8, minute=0, id="daily_reminders")
+    # Prayer tasks at 04:30 Paris time
+    scheduler.add_job(create_daily_prayer_tasks, "cron", hour=4, minute=30, timezone="Europe/Paris", id="daily_prayers")
+    # Motivation messages at 07:00 Paris time
+    scheduler.add_job(create_daily_motivation_messages, "cron", hour=7, minute=0, timezone="Europe/Paris", id="daily_motivation")
     scheduler.start()
     yield
     scheduler.shutdown()

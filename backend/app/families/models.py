@@ -1,6 +1,7 @@
-from sqlalchemy import Column, Integer, String, Table, Enum, ForeignKey
+from sqlalchemy import Column, Integer, String, Table, Enum, ForeignKey, Boolean, Date, DateTime
 from sqlalchemy.orm import relationship
 from app.database import Base
+from datetime import datetime
 import enum
 
 user_family_table = Table(
@@ -18,6 +19,8 @@ class Family(Base):
     description = Column(String, nullable=True)
     family_image = Column(String, nullable=True)
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    prayer_enabled = Column(Boolean, default=False)
+    motivation_enabled = Column(Boolean, default=False)
 
     members = relationship(
         "User",
@@ -44,3 +47,15 @@ class FamilyInvitation(Base):
 
     family = relationship("Family", backref="invitations")
     invited_by = relationship("User", foreign_keys=[invited_by_id])
+
+
+class DailyMessage(Base):
+    __tablename__ = "daily_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    family_id = Column(Integer, ForeignKey("families.id"), nullable=False)
+    message = Column(String, nullable=False)
+    date = Column(Date, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    family = relationship("Family")

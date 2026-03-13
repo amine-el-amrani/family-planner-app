@@ -1,8 +1,12 @@
 import base64
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Body
+from datetime import date
+from typing import Optional
+import requests as _requests
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Body, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.families.models import Family, FamilyInvitation, InvitationStatus
+from app.families.models import Family, FamilyInvitation, InvitationStatus, DailyMessage
 from app.auth.deps import get_current_user
 from app.users.models import User
 from app.notifications.models import Notification
@@ -150,6 +154,41 @@ def list_my_sent_invitations(current_user: User = Depends(get_current_user), db:
         for inv in invitations
     ]
 
+@router.get("/public-holidays")
+def get_public_holidays_early(year: int = Query(default=None)):
+    """Alias registered before /{family_id} so FastAPI matches it correctly."""
+    if year is None:
+        year = date.today().year
+    url = f"https://calendrier.api.gouv.fr/jours-feries/metropole/{year}.json"
+    try:
+        resp = _requests.get(url, timeout=5.0)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception:
+        return {}
+
+
+@router.get("/my-daily-message")
+def get_daily_message_early(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Alias registered before /{family_id} so FastAPI matches it correctly."""
+    today = date.today()
+    family_ids = [f.id for f in current_user.families]
+    if not family_ids:
+        return {"message": None}
+    msg = (
+        db.query(DailyMessage)
+        .filter(DailyMessage.family_id.in_(family_ids), DailyMessage.date == today)
+        .order_by(DailyMessage.id.desc())
+        .first()
+    )
+    if msg:
+        return {"message": msg.message}
+    return {"message": None}
+
+
 @router.get("/{family_id}")
 def get_family(
     family_id: int,
@@ -271,6 +310,47 @@ def list_members(
          "profile_image": user.profile_image, "karma_total": user.karma_total or 0}
         for user in family.members
     ]
+
+class FamilySettingsBody(BaseModel):
+    prayer_enabled: Optional[bool] = None
+    motivation_enabled: Optional[bool] = None
+
+
+@router.patch("/{family_id}/settings")
+def update_family_settings(
+    family_id: int,
+    body: FamilySettingsBody,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    family = db.query(Family).filter(Family.id == family_id).first()
+    if not family:
+        raise HTTPException(status_code=404, detail="Family not found")
+    if family.created_by_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the family creator can change settings")
+    if body.prayer_enabled is not None:
+        family.prayer_enabled = body.prayer_enabled
+    if body.motivation_enabled is not None:
+        family.motivation_enabled = body.motivation_enabled
+    db.commit()
+    return {"prayer_enabled": family.prayer_enabled, "motivation_enabled": family.motivation_enabled}
+
+
+@router.get("/{family_id}/settings")
+def get_family_settings(
+    family_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    family = db.query(Family).filter(Family.id == family_id).first()
+    if not family or current_user not in family.members:
+        raise HTTPException(status_code=404, detail="Family not found")
+    return {
+        "prayer_enabled": family.prayer_enabled or False,
+        "motivation_enabled": family.motivation_enabled or False,
+        "is_creator": family.created_by_id == current_user.id,
+    }
+
 
 @router.post("/{family_id}/remove-member")
 def remove_member(
