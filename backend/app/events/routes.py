@@ -130,7 +130,9 @@ def update_event(
     event = db.query(Event).filter(Event.id == event_id).first()
     if not event:
         raise HTTPException(status_code=404, detail="Événement introuvable")
-    if event.created_by_id != current_user.id:
+    is_event_creator = event.created_by_id == current_user.id
+    is_family_creator = event.family and event.family.created_by_id == current_user.id
+    if not is_event_creator and not is_family_creator:
         raise HTTPException(status_code=403, detail="Seul le créateur peut modifier cet événement")
 
     if event_data.title is not None:
@@ -177,7 +179,9 @@ def delete_event(
     event = db.query(Event).filter(Event.id == event_id).first()
     if not event:
         raise HTTPException(status_code=404, detail="Événement introuvable")
-    if event.created_by_id != current_user.id:
+    is_event_creator = event.created_by_id == current_user.id
+    is_family_creator = event.family and event.family.created_by_id == current_user.id
+    if not is_event_creator and not is_family_creator:
         raise HTTPException(status_code=403, detail="Seul le créateur peut supprimer cet événement")
 
     event_title = event.title

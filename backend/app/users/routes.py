@@ -142,6 +142,7 @@ def push_status(current_user: User = Depends(get_current_user)):
 class UserSettingsBody(BaseModel):
     prayer_enabled: Optional[bool] = None
     motivation_enabled: Optional[bool] = None
+    prayer_city: Optional[str] = None
 
 
 @router.get("/me/settings")
@@ -153,6 +154,7 @@ def get_user_settings(
     return {
         "prayer_enabled": current_user.prayer_enabled or False,
         "motivation_enabled": current_user.motivation_enabled or False,
+        "prayer_city": current_user.prayer_city or "Paris",
     }
 
 
@@ -178,6 +180,22 @@ def update_user_settings(
                 Task.status != TaskStatus.fait,
             ).delete(synchronize_session=False)
 
+    if body.prayer_city is not None and body.prayer_city.strip():
+        new_city = body.prayer_city.strip()
+        city_changed = new_city != (current_user.prayer_city or 'Paris')
+        current_user.prayer_city = new_city
+        if city_changed and current_user.prayer_enabled:
+            # Delete today's uncompleted prayer tasks and recreate with new city
+            from datetime import date as _date
+            today = _date.today()
+            db.query(Task).filter(
+                Task.created_by_id == current_user.id,
+                Task.title.like("🕌 Prière%"),
+                Task.due_date == today,
+                Task.status != TaskStatus.fait,
+            ).delete(synchronize_session=False)
+            run_prayer_tasks_for_user(current_user, db)
+
     if body.motivation_enabled is not None:
         activating = body.motivation_enabled and not current_user.motivation_enabled
         current_user.motivation_enabled = body.motivation_enabled
@@ -188,6 +206,7 @@ def update_user_settings(
     return {
         "prayer_enabled": current_user.prayer_enabled,
         "motivation_enabled": current_user.motivation_enabled,
+        "prayer_city": current_user.prayer_city or "Paris",
     }
 
 

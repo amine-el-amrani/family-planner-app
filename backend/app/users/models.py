@@ -19,3 +19,4 @@ class User(Base):
     # Préférences personnelles
     prayer_enabled = Column(Boolean, default=False)
     motivation_enabled = Column(Boolean, default=False)
+    prayer_city = Column(String, default='Paris')

@@ -3,6 +3,7 @@ Daily scheduled jobs:
 - create_daily_prayer_tasks(): creates 5 prayer tasks per user with prayer_enabled=True
 - create_daily_motivation_messages(): sends a daily motivational quote per user with motivation_enabled=True
 - generate_recurring_tasks(): generates daily task instances from recurring task templates
+- send_morning_briefing(): sends a push/in-app notification with today's task count + events
 """
 import logging
 from datetime import date
@@ -57,10 +58,10 @@ _PRAYERS = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]
 _PRAYER_DISPLAY = {"Fajr": "Fajr", "Dhuhr": "Dhouhr", "Asr": "Asr", "Maghrib": "Maghrib", "Isha": "Isha"}
 
 
-def _fetch_paris_prayer_times() -> dict[str, str] | None:
-    """Fetch today's prayer times for Paris using AlAdhan API (method 12 = UOIF France)."""
+def _fetch_prayer_times(city: str = 'Paris', country: str = 'France') -> dict[str, str] | None:
+    """Fetch today's prayer times for a city using AlAdhan API (method 12 = UOIF France)."""
     url = "https://api.aladhan.com/v1/timingsByCity"
-    params = {"city": "Paris", "country": "France", "method": "12"}
+    params = {"city": city, "country": country, "method": "12"}
     try:
         response = _requests.get(url, params=params, timeout=8.0)
         response.raise_for_status()
@@ -73,7 +74,7 @@ def _fetch_paris_prayer_times() -> dict[str, str] | None:
                 result[prayer] = t
         return result if result else None
     except Exception as e:
-        logger.error(f"[daily_jobs] Failed to fetch prayer times: {e}")
+        logger.error(f"[daily_jobs] Failed to fetch prayer times for {city}: {e}")
         return None
 
 
@@ -82,9 +83,10 @@ def _fetch_paris_prayer_times() -> dict[str, str] | None:
 def run_prayer_tasks_for_user(user, db) -> None:
     """Create today's prayer tasks for a single user using an existing DB session."""
     today = date.today()
-    timings = _fetch_paris_prayer_times()
+    city = getattr(user, 'prayer_city', None) or 'Paris'
+    timings = _fetch_prayer_times(city=city)
     if not timings:
-        logger.warning("[daily_jobs] No prayer timings fetched, skipping for user %s", user.id)
+        logger.warning("[daily_jobs] No prayer timings fetched for %s, skipping for user %s", city, user.id)
         return
     for prayer_key, prayer_time in timings.items():
         display = _PRAYER_DISPLAY.get(prayer_key, prayer_key)
@@ -99,7 +101,7 @@ def run_prayer_tasks_for_user(user, db) -> None:
             continue
         db.add(Task(
             title=title,
-            description=f"Prière {display} à {prayer_time} (heure de Paris)",
+            description=f"Prière {display} à {prayer_time} (heure de {city})",
             status=TaskStatus.en_attente,
             priority=TaskPriority.normale,
             visibility=TaskVisibility.prive,
@@ -135,7 +137,8 @@ def run_motivation_message_for_user(user, db) -> None:
 # ── Cron jobs ─────────────────────────────────────────────────────────────────
 
 def generate_recurring_tasks() -> None:
-    """Generate today's task instances for all active recurring tasks."""
+    """Generate task instances for the next 7 days for all active recurring tasks."""
+    from datetime import timedelta
     from app.tasks.models import RecurringTask
     from app.recurring_tasks.routes import _should_run_today, _create_task_instance
 
@@ -144,12 +147,12 @@ def generate_recurring_tasks() -> None:
         today = date.today()
         rts = db.query(RecurringTask).filter(RecurringTask.is_active == True).all()  # noqa: E712
         for rt in rts:
-            if rt.last_generated_date == today:
-                continue
-            if _should_run_today(rt, today):
-                _create_task_instance(rt, today, db)
+            for offset in range(7):
+                target = today + timedelta(days=offset)
+                if _should_run_today(rt, target):
+                    _create_task_instance(rt, target, db)
         db.commit()
-        logger.info(f"[daily_jobs] Recurring tasks generated for {today}")
+        logger.info(f"[daily_jobs] Recurring tasks generated (7-day window) from {today}")
     except Exception as e:
         logger.error(f"[daily_jobs] Error generating recurring tasks: {e}")
         db.rollback()
@@ -164,10 +167,6 @@ def create_daily_prayer_tasks() -> None:
     try:
         users = db.query(User).filter(User.prayer_enabled == True).all()  # noqa: E712
         if not users:
-            return
-        timings = _fetch_paris_prayer_times()
-        if not timings:
-            logger.warning("[daily_jobs] No prayer timings fetched, skipping prayer tasks")
             return
         for user in users:
             run_prayer_tasks_for_user(user, db)
@@ -192,6 +191,112 @@ def create_daily_motivation_messages() -> None:
         logger.info(f"[daily_jobs] Motivation messages created for {len(users)} users")
     except Exception as e:
         logger.error(f"[daily_jobs] Error creating motivation messages: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def send_morning_briefing() -> None:
+    """
+    Send a morning briefing notification to every user who has a push token.
+    Includes: number of pending tasks today (excluding prayer tasks) + today's events.
+    """
+    from app.users.models import User
+    from app.events.models import Event
+
+    db = SessionLocal()
+    try:
+        today = date.today()
+        users = db.query(User).filter(User.push_token != None).all()  # noqa: E711
+
+        _OPENERS = [
+            "Bonne journée ! 🌅",
+            "Prêt(e) pour cette belle journée ? ☀️",
+            "C'est parti ! 💪",
+            "Une nouvelle journée, de nouvelles victoires ! 🏆",
+            "En avant pour aujourd'hui ! 🚀",
+        ]
+
+        _FREE_DAY = [
+            "Rien au programme aujourd'hui — vous êtes en vacances ! 🏖️",
+            "Journée libre ! Profitez-en bien 😎",
+            "Agenda vide aujourd'hui. Reposez-vous, vous le méritez ! 🌴",
+            "Pas de tâches, pas d'événements. C'est votre jour de détente ! ☕",
+            "Le planning est vide aujourd'hui — savourez chaque moment ! 🎉",
+            "Journée zen au programme. Rien à faire, tout à vivre ! 🧘",
+            "Aujourd'hui c'est repos — recharge les batteries ! 🔋",
+        ]
+
+        for user in users:
+            if not user.push_token:
+                continue
+
+            # Count pending tasks today, excluding prayer tasks
+            task_count = db.query(Task).filter(
+                Task.assigned_to_id == user.id,
+                Task.due_date == today,
+                Task.status == TaskStatus.en_attente,
+                ~Task.title.like("🕌 Prière%"),
+            ).count()
+            # Also count tasks created by the user that are not assigned to anyone else
+            personal_count = db.query(Task).filter(
+                Task.created_by_id == user.id,
+                Task.assigned_to_id == None,  # noqa: E711
+                Task.due_date == today,
+                Task.status == TaskStatus.en_attente,
+                ~Task.title.like("🕌 Prière%"),
+            ).count()
+            total_tasks = task_count + personal_count
+
+            # Collect today's events in user's families
+            today_events = []
+            for family in user.families:
+                for event in family.events:
+                    if event.date == today:
+                        today_events.append(event.title)
+
+            day_seed = today.timetuple().tm_yday + user.id
+
+            # Build message
+            if total_tasks == 0 and not today_events:
+                # Free day — always send an encouraging "nothing today" message
+                body = _FREE_DAY[day_seed % len(_FREE_DAY)]
+                title = "🗓️ Votre journée commence !"
+                db.add(Notification(message=body, user_id=user.id, created_by_id=user.id))
+                send_push(user.push_token, title, body, url="/home")
+                continue
+
+            opener = _OPENERS[day_seed % len(_OPENERS)]
+            lines = [opener]
+            if total_tasks > 0:
+                if total_tasks == 1:
+                    lines.append("Vous avez 1 tâche à accomplir aujourd'hui.")
+                else:
+                    lines.append(f"Vous avez {total_tasks} tâches à accomplir aujourd'hui.")
+            if today_events:
+                if len(today_events) == 1:
+                    lines.append(f"Événement du jour : {today_events[0]} 📅")
+                else:
+                    lines.append(f"{len(today_events)} événements aujourd'hui : {', '.join(today_events[:2])}{'...' if len(today_events) > 2 else ''} 📅")
+
+            body = " ".join(lines)
+            title = "🗓️ Votre journée commence !"
+
+            # In-app notification
+            db.add(Notification(
+                message=body,
+                user_id=user.id,
+                created_by_id=user.id,
+            ))
+
+            # Push notification
+            if user.push_token:
+                send_push(user.push_token, title, body, url="/home")
+
+        db.commit()
+        logger.info(f"[daily_jobs] Morning briefing sent to {len(users)} users")
+    except Exception as e:
+        logger.error(f"[daily_jobs] Error sending morning briefing: {e}")
         db.rollback()
     finally:
         db.close()

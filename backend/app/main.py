@@ -24,7 +24,7 @@ from app.notifications.routes import router as notifications_router
 from app.shopping.routes import router as shopping_router
 from app.notes.routes import router as notes_router
 from app.reminders import send_daily_reminders
-from app.families.daily_jobs import create_daily_prayer_tasks, create_daily_motivation_messages, generate_recurring_tasks
+from app.families.daily_jobs import create_daily_prayer_tasks, create_daily_motivation_messages, generate_recurring_tasks, send_morning_briefing
 from app.tasks.models import RecurringTask  # noqa: F401 – ensures table is registered with Base
 from app.recurring_tasks.routes import router as recurring_tasks_router
 
@@ -95,6 +95,8 @@ async def lifespan(app: FastAPI):
     # Motivation messages at 07:00 Paris time
     scheduler.add_job(create_daily_motivation_messages, "cron", hour=7, minute=0, timezone="Europe/Paris", id="daily_motivation")
     scheduler.add_job(generate_recurring_tasks, "cron", hour=0, minute=5, timezone="Europe/Paris", id="recurring_tasks")
+    # Morning briefing at 07:30 Paris time (after prayer tasks + motivation messages)
+    scheduler.add_job(send_morning_briefing, "cron", hour=7, minute=30, timezone="Europe/Paris", id="morning_briefing")
     scheduler.start()
     yield
     scheduler.shutdown()

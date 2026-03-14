@@ -1,6 +1,6 @@
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -105,9 +105,12 @@ def create_recurring_task(
     db.add(rt)
     db.flush()
 
-    # Generate first instance for today if applicable
-    if _should_run_today(rt, date.today()):
-        _create_task_instance(rt, date.today(), db)
+    # Generate instances for the next 7 days immediately
+    today = date.today()
+    for offset in range(7):
+        target = today + timedelta(days=offset)
+        if _should_run_today(rt, target):
+            _create_task_instance(rt, target, db)
 
     db.commit()
     db.refresh(rt)
@@ -126,9 +129,69 @@ def list_recurring_tasks(
     return [_rt_to_dict(rt) for rt in rts]
 
 
+class RecurringTaskUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    priority: Optional[str] = None
+    category: Optional[str] = None
+    assigned_to_id: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+@router.patch("/{rt_id}")
+def update_recurring_task(
+    rt_id: int,
+    body: RecurringTaskUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    rt = db.query(RecurringTask).filter(RecurringTask.id == rt_id).first()
+    if not rt or rt.created_by_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Tâche récurrente introuvable")
+
+    if body.title is not None:
+        rt.title = body.title
+    if body.description is not None:
+        rt.description = body.description if body.description else None
+    if body.priority is not None:
+        try:
+            rt.priority = TaskPriority[body.priority]
+        except KeyError:
+            raise HTTPException(status_code=400, detail="Priorité invalide")
+    if body.category is not None:
+        rt.category = body.category if body.category else None
+    if body.assigned_to_id is not None:
+        rt.assigned_to_id = body.assigned_to_id
+    if body.is_active is not None:
+        rt.is_active = body.is_active
+
+    # Propagate title/priority/category changes to future pending instances
+    if any(v is not None for v in [body.title, body.priority, body.category, body.assigned_to_id]):
+        today = date.today()
+        future_tasks = db.query(Task).filter(
+            Task.recurring_task_id == rt.id,
+            Task.due_date >= today,
+            Task.status == TaskStatus.en_attente,
+        ).all()
+        for t in future_tasks:
+            if body.title is not None:
+                t.title = rt.title
+            if body.priority is not None:
+                t.priority = rt.priority
+            if body.category is not None:
+                t.category = rt.category
+            if body.assigned_to_id is not None:
+                t.assigned_to_id = rt.assigned_to_id
+
+    db.commit()
+    db.refresh(rt)
+    return _rt_to_dict(rt)
+
+
 @router.delete("/{rt_id}")
 def delete_recurring_task(
     rt_id: int,
+    delete_future: bool = Query(default=True),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -136,6 +199,13 @@ def delete_recurring_task(
     if not rt or rt.created_by_id != current_user.id:
         raise HTTPException(status_code=404, detail="Tâche récurrente introuvable")
     rt.is_active = False
+    if delete_future:
+        today = date.today()
+        db.query(Task).filter(
+            Task.recurring_task_id == rt.id,
+            Task.due_date > today,
+            Task.status == TaskStatus.en_attente,
+        ).delete(synchronize_session=False)
     db.commit()
     return {"message": "Tâche récurrente désactivée"}
 
