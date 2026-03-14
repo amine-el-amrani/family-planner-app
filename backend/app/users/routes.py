@@ -83,6 +83,61 @@ def get_karma(
     }
 
 
+@router.get("/me/stats")
+def get_stats(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Productivity stats: streak, heatmap (60 days), week/month counts, top category."""
+    from app.tasks.models import Task, TaskStatus
+    from sqlalchemy import func
+
+    today = datetime.utcnow().date()
+    since_60 = today - timedelta(days=59)
+
+    # Heatmap: group completed tasks by date over last 60 days
+    rows = (
+        db.query(func.date(Task.completed_at), func.count(Task.id))
+        .filter(
+            Task.created_by_id == current_user.id,
+            Task.status == TaskStatus.fait,
+            Task.completed_at >= datetime.combine(since_60, datetime.min.time()),
+        )
+        .group_by(func.date(Task.completed_at))
+        .all()
+    )
+    heatmap = {str(r[0]): r[1] for r in rows}
+
+    # Streak: count consecutive days ending today with at least 1 task done
+    streak = 0
+    check = today
+    while True:
+        if heatmap.get(str(check), 0) > 0:
+            streak += 1
+            check -= timedelta(days=1)
+        else:
+            break
+
+    # Week / month counts
+    week_start = today - timedelta(days=today.weekday())
+    month_start = today.replace(day=1)
+    tasks_done_week = sum(v for k, v in heatmap.items() if k >= str(week_start))
+    tasks_done_month = sum(v for k, v in heatmap.items() if k >= str(month_start))
+
+    # Top category (tasks with category field — join via event if needed; here use task title prefix heuristic)
+    # Use task category via events or direct category on task if it exists — tasks don't have category
+    # so we skip and return None for now
+    top_category = None
+
+    return {
+        "streak_days": streak,
+        "tasks_done_week": tasks_done_week,
+        "tasks_done_month": tasks_done_month,
+        "heatmap": heatmap,
+        "top_category": top_category,
+    }
+
+
 @router.put("/me/daily-goal")
 def update_daily_goal(
     goal: int,
