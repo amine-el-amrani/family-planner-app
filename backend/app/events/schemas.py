@@ -11,6 +11,8 @@ class EventCreate(BaseModel):
     time_to: Optional[time] = None
     family_id: int
     category: Optional[str] = None
+    recurrence_type: Optional[str] = "none"
+    recurrence_end_date: Optional[date] = None
 
 
 class EventUpdate(BaseModel):
@@ -20,3 +22,5 @@ class EventUpdate(BaseModel):
     time_from: Optional[time] = None
     time_to: Optional[time] = None
     category: Optional[str] = None
+    recurrence_type: Optional[str] = None
+    recurrence_end_date: Optional[date] = None

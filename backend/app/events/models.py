@@ -12,6 +12,14 @@ class EventRsvpStatus(str, enum.Enum):
     not_going = "not_going"
 
 
+class RecurrenceType(str, enum.Enum):
+    none = "none"
+    daily = "daily"
+    weekly = "weekly"
+    monthly = "monthly"
+    yearly = "yearly"
+
+
 class Event(Base):
     __tablename__ = "events"
 
@@ -23,6 +31,8 @@ class Event(Base):
     time_to = Column(Time, nullable=True)
     category = Column(String, nullable=True)
     image_url = Column(String, nullable=True)
+    recurrence_type = Column(String, default="none", nullable=True, server_default="none")
+    recurrence_end_date = Column(Date, nullable=True)
 
     family_id = Column(Integer, ForeignKey("families.id"), nullable=False)
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)

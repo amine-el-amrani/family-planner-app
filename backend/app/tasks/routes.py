@@ -161,11 +161,22 @@ def today_tasks(
         Task.status != TaskStatus.annule
     ).all()
 
+    # Overdue: tasks with a past due_date still pending
+    overdue = db.query(Task).filter(
+        or_(
+            Task.created_by_id == current_user.id,
+            Task.assigned_to_id == current_user.id,
+        ),
+        Task.due_date < today,
+        Task.status == TaskStatus.en_attente,
+    ).all()
+
     return {
         "personal": [_task_to_dict(t) for t in personal],
         "assigned_to_me": [_task_to_dict(t) for t in assigned_to_me],
         "famille": [_task_to_dict(t) for t in family_tasks],
         "tomorrow_urgent": [_task_to_dict(t) for t in tomorrow_urgent],
+        "overdue": [_task_to_dict(t) for t in overdue],
     }
 
 

@@ -1,8 +1,9 @@
 import os
 import uuid
 import base64
-from typing import Optional
+from typing import Optional, List
 from datetime import date, datetime, timedelta
+from dateutil.relativedelta import relativedelta
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -22,16 +23,17 @@ class RsvpUpdate(BaseModel):
     status: str  # "going" | "not_going" | "pending"
 
 
-def _event_to_dict(event: Event, family_name: str = None) -> dict:
+def _event_to_dict(event: Event, family_name: str = None, override_date: date = None) -> dict:
     attendees = event.attendees or []
     going = [a for a in attendees if a.status == EventRsvpStatus.going]
     not_going = [a for a in attendees if a.status == EventRsvpStatus.not_going]
     pending_att = [a for a in attendees if a.status == EventRsvpStatus.pending]
+    recurrence = event.recurrence_type.value if event.recurrence_type else "none"
     return {
         "id": event.id,
         "title": event.title,
         "description": event.description,
-        "date": str(event.date),
+        "date": str(override_date or event.date),
         "time_from": str(event.time_from) if event.time_from else None,
         "time_to": str(event.time_to) if event.time_to else None,
         "category": event.category,
@@ -43,6 +45,8 @@ def _event_to_dict(event: Event, family_name: str = None) -> dict:
         "going_count": len(going),
         "not_going_count": len(not_going),
         "pending_count": len(pending_att),
+        "recurrence_type": recurrence,
+        "recurrence_end_date": str(event.recurrence_end_date) if event.recurrence_end_date else None,
         "attendees": [
             {
                 "user_id": a.user_id,
@@ -52,6 +56,39 @@ def _event_to_dict(event: Event, family_name: str = None) -> dict:
             for a in attendees
         ],
     }
+
+
+def _expand_recurring(event: Event, start: date, end: date) -> List[dict]:
+    """Return all occurrences of a recurring event within [start, end]."""
+    recurrence = event.recurrence_type or "none"
+    if recurrence == "none":
+        if start <= event.date <= end:
+            return [_event_to_dict(event)]
+        return []
+
+    end_boundary = min(end, event.recurrence_end_date) if event.recurrence_end_date else end
+    occurrences = []
+    current = event.date
+
+    while current <= end_boundary:
+        if current >= start:
+            occurrences.append(_event_to_dict(event, override_date=current))
+        # Advance
+        if recurrence == "daily":
+            current = current + timedelta(days=1)
+        elif recurrence == "weekly":
+            current = current + timedelta(weeks=1)
+        elif recurrence == "monthly":
+            current = current + relativedelta(months=1)
+        elif recurrence == "yearly":
+            current = current + relativedelta(years=1)
+        else:
+            break
+        # Safety cap: avoid infinite loop
+        if len(occurrences) > 366:
+            break
+
+    return occurrences
 
 
 @router.get("/my-families")
@@ -81,6 +118,8 @@ def create_event(
         category=event_data.category,
         family_id=family.id,
         created_by_id=current_user.id,
+        recurrence_type=event_data.recurrence_type or "none",
+        recurrence_end_date=event_data.recurrence_end_date,
     )
     db.add(event)
     db.flush()  # get event.id before creating attendees
@@ -292,16 +331,23 @@ def list_my_events(
     end_date: Optional[date] = None,
     current_user: User = Depends(get_current_user),
 ):
+    query_start = start_date or date(2020, 1, 1)
+    query_end = end_date or date(2099, 12, 31)
     events = []
     for family in current_user.families:
         if family_id and family.id != family_id:
             continue
         for event in family.events:
-            if start_date and event.date < start_date:
+            # Include event if it starts before query_end and (no end or ends after query_start)
+            if event.date > query_end:
                 continue
-            if end_date and event.date > end_date:
+            if event.recurrence_type and event.recurrence_type != "none":
+                end_boundary = event.recurrence_end_date or query_end
+                if end_boundary < query_start:
+                    continue
+            elif start_date and event.date < start_date:
                 continue
-            events.append(_event_to_dict(event, family.name))
+            events.extend(_expand_recurring(event, query_start, query_end))
     return events
 
 
@@ -312,13 +358,13 @@ def upcoming_events(days: int = 3, current_user: User = Depends(get_current_user
     events = []
     for family in current_user.families:
         for event in family.events:
-            if today <= event.date <= end_day:
+            for occ in _expand_recurring(event, today, end_day):
                 events.append({
-                    "id": event.id,
-                    "title": event.title,
-                    "date": str(event.date),
+                    "id": occ["id"],
+                    "title": occ["title"],
+                    "date": occ["date"],
                     "family_name": family.name,
-                    "created_by_id": event.created_by_id,
+                    "created_by_id": occ["created_by_id"],
                 })
     return events
 
@@ -331,6 +377,5 @@ def this_week_events(current_user: User = Depends(get_current_user)):
     events = []
     for family in current_user.families:
         for event in family.events:
-            if start <= event.date <= end:
-                events.append(_event_to_dict(event, family.name))
+            events.extend(_expand_recurring(event, start, end))
     return events

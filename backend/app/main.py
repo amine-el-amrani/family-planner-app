@@ -14,6 +14,7 @@ from app.tasks.models import Task
 from app.notifications.models import Notification
 from app.shopping.models import ShoppingList, ShoppingItem
 from app.notes.models import FamilyNote
+from app.anniversaries.models import Anniversary  # noqa
 from app.auth.models import VerificationCode  # noqa
 from app.auth.routes import router as auth_router
 from app.users.routes import router as users_router
@@ -27,6 +28,7 @@ from app.reminders import send_daily_reminders
 from app.families.daily_jobs import create_daily_prayer_tasks, create_daily_motivation_messages, generate_recurring_tasks, send_morning_briefing
 from app.tasks.models import RecurringTask  # noqa: F401 – ensures table is registered with Base
 from app.recurring_tasks.routes import router as recurring_tasks_router
+from app.anniversaries.routes import router as anniversaries_router
 
 scheduler = AsyncIOScheduler()
 logger = logging.getLogger(__name__)
@@ -126,6 +128,7 @@ app.include_router(notifications_router)
 app.include_router(shopping_router)
 app.include_router(notes_router)
 app.include_router(recurring_tasks_router)
+app.include_router(anniversaries_router)
 
 
 @app.get("/")
