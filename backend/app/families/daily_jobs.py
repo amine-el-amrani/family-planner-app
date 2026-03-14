@@ -107,6 +107,7 @@ def run_prayer_tasks_for_user(user, db) -> None:
             created_by_id=user.id,
             assigned_to_id=user.id,
             due_date=today,
+            category='Spirituel',
         ))
 
 
